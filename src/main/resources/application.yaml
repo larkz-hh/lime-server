@@ -1,3 +1,66 @@
 spring:
   application:
     name: lime_server
+
+  # .env 格式为 KEY=VALUE，与 docker-compose 共用同一份
+  config:
+    import: optional:file:.env[.properties]
+
+  # ===== 数据源 =====
+  datasource:
+    url: jdbc:mysql://localhost:3306/${MYSQL_DATABASE}?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
+    username: root
+    password: ${MYSQL_ROOT_PASSWORD}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+
+  # ===== Redis =====
+  data:
+    redis:
+      host: localhost
+      port: 6379
+      password: ${REDIS_PASSWORD}
+      database: 0
+
+  # ===== 文件上传大小限制 =====
+  servlet:
+    multipart:
+      max-file-size: 50MB
+      max-request-size: 100MB
+
+# ===== MyBatis-Plus =====
+mybatis-plus:
+  configuration:
+    map-underscore-to-camel-case: true
+    # 打印 SQL
+    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
+    # org.apache.ibatis.logging.nologging.NoLoggingImpl
+  global-config:
+    db-config:
+      # 逻辑删除（deleted 字段：1=已删除，0=正常）
+      logic-delete-field: deleted
+      logic-delete-value: 1
+      logic-not-delete-value: 0
+
+# ===== RocketMQ =====
+rocketmq:
+  name-server: ${ROCKETMQ_NAMESRV:localhost:9876}
+  producer:
+    group: lime-producer-group
+
+# ===== 自定义配置（ @ConfigurationProperties 类读取） =====
+
+# MinIO 对象存储
+minio:
+  endpoint: http://localhost:9000
+  access-key: ${MINIO_ROOT_USER}
+  secret-key: ${MINIO_ROOT_PASSWORD}
+  bucket-name: ${MINIO_BUCKET:lime-bucket}
+
+# JWT
+jwt:
+  secret: ${JWT_SECRET}
+  expire: 7200          # access token 有效期，单位秒（2小时）
+  refresh-expire: 604800 # refresh token 有效期，单位秒（7天）
+
+server:
+  port: 8080
