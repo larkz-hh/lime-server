@@ -1,0 +1,67 @@
+services:
+
+  # ===== MySQL 主数据库 =====
+  mysql:
+    image: mysql:8.0
+    container_name: lime-mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${MYSQL_DATABASE}
+      TZ: Asia/Shanghai
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+    restart: unless-stopped
+
+  # ===== Redis 缓存 =====
+  redis:
+    image: redis:7
+    container_name: lime-redis
+    ports:
+      - "6379:6379"
+    command: redis-server --requirepass ${REDIS_PASSWORD}
+    restart: unless-stopped
+
+  # ===== MinIO 对象存储 =====
+  minio:
+    image: minio/minio
+    container_name: lime-minio
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+    ports:
+      - "9000:9000"   # Java SDK 连接
+      - "9001:9001"   # 浏览器管理控制台：http://localhost:9001
+    command: server /data --console-address ":9001"
+    volumes:
+      - minio_data:/data
+    restart: unless-stopped
+
+  # ===== RocketMQ NameServer =====
+  rocketmq-namesrv:
+    image: apache/rocketmq:5.1.4
+    container_name: lime-namesrv
+    ports:
+      - "9876:9876"
+    command: sh mqnamesrv
+    restart: unless-stopped
+
+  # ===== RocketMQ Broker =====
+  rocketmq-broker:
+    image: apache/rocketmq:5.1.4
+    container_name: lime-broker
+    ports:
+      - "10909:10909"
+      - "10911:10911"
+    environment:
+      NAMESRV_ADDR: lime-namesrv:9876
+      #JAVA_OPT_EXT: "-Dbroker.brokerIP1=127.0.0.1"
+    command: sh mqbroker -n lime-namesrv:9876 autoCreateTopicEnable=true
+    depends_on:
+      - rocketmq-namesrv
+    restart: unless-stopped
+
+volumes:
+  mysql_data:
+  minio_data:
