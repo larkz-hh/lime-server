@@ -8,7 +8,7 @@ spring:
 
   # ===== 数据源 =====
   datasource:
-    url: jdbc:mysql://localhost:3306/${MYSQL_DATABASE}?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
+    url: jdbc:mysql://${MYSQL_HOST:localhost}:3306/${MYSQL_DATABASE}?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
     username: root
     password: ${MYSQL_ROOT_PASSWORD}
     driver-class-name: com.mysql.cj.jdbc.Driver
@@ -16,10 +16,14 @@ spring:
   # ===== Redis =====
   data:
     redis:
-      host: localhost
+      host: ${REDIS_HOST:localhost}
       port: 6379
       password: ${REDIS_PASSWORD}
       database: 0
+
+  sql:
+    init:
+      mode: always
 
   # ===== 文件上传大小限制 =====
   servlet:
@@ -51,7 +55,7 @@ rocketmq:
 
 # MinIO 对象存储
 minio:
-  endpoint: http://localhost:9000
+  endpoint: ${MINIO_ENDPOINT:http://localhost:9000}
   access-key: ${MINIO_ROOT_USER}
   secret-key: ${MINIO_ROOT_PASSWORD}
   bucket-name: ${MINIO_BUCKET:lime-bucket}

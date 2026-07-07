@@ -1,5 +1,25 @@
 services:
 
+  # ===== Spring Boot 应用 =====
+  app:
+    build: .
+    container_name: lime-app
+    ports:
+      - "8080:8080"
+    env_file:
+      - .env
+    environment:
+      MYSQL_HOST: lime-mysql
+      REDIS_HOST: lime-redis
+      MINIO_ENDPOINT: http://lime-minio:9000
+      ROCKETMQ_NAMESRV: lime-namesrv:9876
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    restart: unless-stopped
+
   # ===== MySQL 主数据库 =====
   mysql:
     image: mysql:8.0
@@ -12,6 +32,11 @@ services:
       - "3306:3306"
     volumes:
       - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-p${MYSQL_ROOT_PASSWORD}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
     restart: unless-stopped
 
   # ===== Redis 缓存 =====
