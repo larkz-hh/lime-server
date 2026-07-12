@@ -17,6 +17,7 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 
+import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -53,13 +54,6 @@ public class AuthServiceImpl implements AuthService {
      */
     @Override
     public void register(RegisterRequest request) {
-        // 用户名唯一校验
-        Long usernameCount = userMapper.selectCount(
-                new LambdaQueryWrapper<User>().eq(User::getUsername, request.getUsername()));
-        if (usernameCount > 0) {
-            throw new BusinessException("用户名已存在");
-        }
-
         // 邮箱唯一校验
         Long emailCount = userMapper.selectCount(
                 new LambdaQueryWrapper<User>().eq(User::getEmail, request.getEmail()));
@@ -68,13 +62,15 @@ public class AuthServiceImpl implements AuthService {
         }
 
         User user = new User();
-        user.setUsername(request.getUsername());
+        user.setEmail(request.getEmail());
         // 使用 BCrypt 加密后存入数据库
         user.setPassword(passwordEncoder.encode(request.getPassword()));
-        user.setEmail(request.getEmail());
+        user.setNickname("用户" + UUID.randomUUID().toString().replace("-", "").substring(0, 6));
+        // 自动生成唯一 handle，用户可在个人设置中修改
+        user.setHandle("user_" + UUID.randomUUID().toString().replace("-", "").substring(0, 8));
         user.setPhone(request.getPhone());
-        user.setRole("DEFAULT");// 设置默认角色
-        user.setStatus(0);// 设置默认状态（0: 正常, 1: 封禁等）
+        user.setRole("USER");
+        user.setStatus(0);
 
         userMapper.insert(user);
     }
@@ -90,12 +86,12 @@ public class AuthServiceImpl implements AuthService {
      */
     @Override
     public LoginResponse login(LoginRequest request) {
-        // 根据用户名查询用户
+        // 根据邮箱查询用户
         User user = userMapper.selectOne(
-                new LambdaQueryWrapper<User>().eq(User::getUsername, request.getUsername()));
+                new LambdaQueryWrapper<User>().eq(User::getEmail, request.getEmail()));
         // 校验用户是否存在，以及密码是否匹配
         if (user == null || !passwordEncoder.matches(request.getPassword(), user.getPassword())) {
-            throw new BusinessException("用户名或密码错误");
+            throw new BusinessException("邮箱或密码错误");
         }
 
         // 校验用户状态
