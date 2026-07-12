@@ -21,6 +21,17 @@ spring:
       password: ${REDIS_PASSWORD}
       database: 0
 
+  # ===== 邮件 SMTP =====
+  mail:
+    host: smtp.qq.com
+    port: 587
+    username: ${MAIL_USERNAME}
+    password: ${MAIL_PASSWORD}
+    default-encoding: UTF-8
+    properties:
+      mail.smtp.auth: true
+      mail.smtp.starttls.enable: true
+
   sql:
     init:
       mode: always
