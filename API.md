@@ -38,9 +38,41 @@ Authorization: Bearer <accessToken>
 
 ---
 
+### 发送验证码
+
+`POST /api/auth/send-code`
+
+注册和验证码登录前调用，验证码有效期 5 分钟，同一邮箱 60 秒内只能发一次。
+
+**请求体**
+
+```json
+{
+  "email": "user@example.com"
+}
+```
+
+| 字段  | 类型   | 必填 | 说明     |
+|-------|--------|------|----------|
+| email | string | 是   | 接收验证码的邮箱 |
+
+**响应**
+
+```json
+{
+  "code": 200,
+  "message": "操作成功",
+  "data": null
+}
+```
+
+---
+
 ### 注册
 
 `POST /api/auth/register`
+
+注册前需先调用发送验证码接口。
 
 **请求体**
 
@@ -48,15 +80,17 @@ Authorization: Bearer <accessToken>
 {
   "email": "user@example.com",
   "password": "abc123",
+  "code": "123456",
   "phone": "13800138000"
 }
 ```
 
-| 字段     | 类型   | 必填 | 说明                       |
-|----------|--------|------|----------------------------|
-| email    | string | 是   | 邮箱，作为登录账号，全局唯一 |
-| password | string | 是   | 6-32 位，需同时包含字母和数字 |
-| phone    | string | 否   | 11 位手机号                 |
+| 字段     | 类型   | 必填 | 说明                          |
+|----------|--------|------|-------------------------------|
+| email    | string | 是   | 邮箱，作为登录账号，全局唯一   |
+| password | string | 是   | 6-32 位，需同时包含字母和数字  |
+| code     | string | 是   | 邮箱验证码                    |
+| phone    | string | 否   | 11 位手机号                   |
 
 注册成功后系统自动生成昵称（`用户xxxxxx`）和 handle（`user_xxxxxxxx`），用户可在个人设置中修改。
 
@@ -76,7 +110,9 @@ Authorization: Bearer <accessToken>
 
 `POST /api/auth/login`
 
-**请求体**
+支持密码登录和验证码登录，`password` 与 `code` 二选一，验证码登录前需先调用发送验证码接口。
+
+**密码登录**
 
 ```json
 {
@@ -85,10 +121,20 @@ Authorization: Bearer <accessToken>
 }
 ```
 
-| 字段     | 类型   | 必填 | 说明   |
-|----------|--------|------|--------|
-| email    | string | 是   | 登录邮箱 |
-| password | string | 是   | 登录密码 |
+**验证码登录**
+
+```json
+{
+  "email": "user@example.com",
+  "code": "123456"
+}
+```
+
+| 字段     | 类型   | 必填 | 说明                        |
+|----------|--------|------|-----------------------------|
+| email    | string | 是   | 登录邮箱                    |
+| password | string | 二选一 | 登录密码                  |
+| code     | string | 二选一 | 邮箱验证码                |
 
 **响应**
 
