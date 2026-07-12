@@ -6,7 +6,9 @@ import com.lzz.lime_server.common.exception.BusinessException;
 import com.lzz.lime_server.dto.request.LoginRequest;
 import com.lzz.lime_server.dto.request.RefreshTokenRequest;
 import com.lzz.lime_server.dto.request.RegisterRequest;
+import com.lzz.lime_server.dto.request.SendCodeRequest;
 import com.lzz.lime_server.dto.response.LoginResponse;
+import com.lzz.lime_server.service.EmailService;
 import com.lzz.lime_server.entity.User;
 import com.lzz.lime_server.mapper.UserMapper;
 import com.lzz.lime_server.service.AuthService;
@@ -32,6 +34,7 @@ public class AuthServiceImpl implements AuthService {
     private final PasswordEncoder passwordEncoder;
     private final JwtUtil jwtUtil;
     private final StringRedisTemplate redisTemplate;
+    private final EmailService emailService;
 
     @Value("${jwt.expire}")
     private long expire;
@@ -43,6 +46,11 @@ public class AuthServiceImpl implements AuthService {
     private static final String REFRESH_TOKEN_KEY_PREFIX = "refresh:token:";
     // Redis 中存储 Access Token 黑名单的键前缀
     private static final String BLACKLIST_KEY_PREFIX = "blacklist:token:";
+    private static final String EMAIL_CODE_KEY_PREFIX = "email:code:";
+    // 同一邮箱发码冷却时间（秒）
+    private static final long CODE_COOLDOWN_SECONDS = 60;
+    // 验证码有效期（秒）
+    private static final long CODE_EXPIRE_SECONDS = 300;
 
 
     /**
@@ -53,7 +61,33 @@ public class AuthServiceImpl implements AuthService {
      * @throws BusinessException 当用户名或邮箱已被注册时抛出
      */
     @Override
+    public void sendCode(SendCodeRequest request) {
+        String email = request.getEmail();
+        String cooldownKey = EMAIL_CODE_KEY_PREFIX + "cd:" + email;// 构造冷却时间的 Redis Key
+        if (Boolean.TRUE.equals(redisTemplate.hasKey(cooldownKey))) {
+            throw new BusinessException("发送过于频繁，请稍后再试");
+        }// 检查该邮箱是否处于冷却期
+
+        // 生成 6 位数字验证码（不足 6 位前面补 0）
+        String code = String.format("%06d", (int) (Math.random() * 1000000));
+        // 将验证码存入 Redis，并设置过期时间
+        redisTemplate.opsForValue().set(EMAIL_CODE_KEY_PREFIX + email, code, CODE_EXPIRE_SECONDS, TimeUnit.SECONDS);
+        // 将冷却标记存入 Redis，并设置冷却时间（如 60 秒）
+        redisTemplate.opsForValue().set(cooldownKey, "1", CODE_COOLDOWN_SECONDS, TimeUnit.SECONDS);
+        // 调用邮件服务发送验证码
+        emailService.sendVerificationCode(email, code);
+    }
+
+    @Override
     public void register(RegisterRequest request) {
+        // 验证码校验
+        String codeKey = EMAIL_CODE_KEY_PREFIX + request.getEmail();// 构造验证码的 Redis Key
+        String storedCode = redisTemplate.opsForValue().get(codeKey);// 从 Redis 获取之前存储的验证码
+        if (storedCode == null || !storedCode.equals(request.getCode())) {
+            throw new BusinessException("验证码错误或已过期");
+        }// 如果不存在（过期）或不匹配，则抛出异常
+        redisTemplate.delete(codeKey);// 校验成功后，立即删除 Redis 中的验证码
+
         // 邮箱唯一校验
         Long emailCount = userMapper.selectCount(
                 new LambdaQueryWrapper<User>().eq(User::getEmail, request.getEmail()));
@@ -86,19 +120,36 @@ public class AuthServiceImpl implements AuthService {
      */
     @Override
     public LoginResponse login(LoginRequest request) {
+        if (request.getPassword() == null && request.getCode() == null) {
+            throw new BusinessException("密码或验证码不能同时为空");
+        }
+
         // 根据邮箱查询用户
         User user = userMapper.selectOne(
                 new LambdaQueryWrapper<User>().eq(User::getEmail, request.getEmail()));
-        // 校验用户是否存在，以及密码是否匹配
-        if (user == null || !passwordEncoder.matches(request.getPassword(), user.getPassword())) {
+        if (user == null) {
             throw new BusinessException("邮箱或密码错误");
+        }
+
+        if (request.getCode() != null) {
+            // 验证码登录
+            String codeKey = EMAIL_CODE_KEY_PREFIX + request.getEmail();
+            String storedCode = redisTemplate.opsForValue().get(codeKey);
+            if (storedCode == null || !storedCode.equals(request.getCode())) {
+                throw new BusinessException("验证码错误或已过期");
+            }
+            redisTemplate.delete(codeKey);
+        } else {
+            // 密码登录
+            if (!passwordEncoder.matches(request.getPassword(), user.getPassword())) {
+                throw new BusinessException("邮箱或密码错误");
+            }
         }
 
         // 校验用户状态
         if (user.getStatus() == 1) {
             throw new BusinessException(ResultCode.FORBIDDEN);
         }
-        // 登录成功，调用私有方法生成双 Token 并返回
         return buildLoginResponse(user.getId());
     }
 
