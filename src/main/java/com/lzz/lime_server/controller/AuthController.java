@@ -4,6 +4,7 @@ import com.lzz.lime_server.common.Result;
 import com.lzz.lime_server.dto.request.LoginRequest;
 import com.lzz.lime_server.dto.request.RefreshTokenRequest;
 import com.lzz.lime_server.dto.request.RegisterRequest;
+import com.lzz.lime_server.dto.request.SendCodeRequest;
 import com.lzz.lime_server.dto.response.LoginResponse;
 import com.lzz.lime_server.service.AuthService;
 import jakarta.validation.Valid;
@@ -13,7 +14,7 @@ import org.springframework.web.bind.annotation.*;
 
 /**
  * 认证控制器
- * 负责处理用户注册、登录、登出以及 Token 刷新相关的 HTTP 请求
+ * 负责处理用发送验证码、户注册、登录、登出以及 Token 刷新相关的 HTTP 请求
  * 所有接口的统一前缀为 /api/auth，且在 SecurityConfig 中已配置为全局放行
  */
 @RestController
@@ -30,6 +31,12 @@ public class AuthController {
      * @param request 包含用户名、密码、邮箱等注册信息的请求体，已通过 @Valid 触发参数校验
      * @return 统一响应结果，成功时不包含业务数据
      */
+    @PostMapping("/send-code")
+    public Result<Void> sendCode(@Valid @RequestBody SendCodeRequest request) {
+        authService.sendCode(request);
+        return Result.success();
+    }
+
     @PostMapping("/register")
     public Result<Void> register(@Valid @RequestBody RegisterRequest request) {
         authService.register(request);

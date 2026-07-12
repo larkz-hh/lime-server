@@ -24,7 +24,7 @@ import java.util.concurrent.TimeUnit;
 
 /**
  * 认证服务实现类
- * 负责处理用户注册、登录、登出以及 Token 刷新的核心业务逻辑
+ * 负责处理发送验证码、用户注册、登录、登出以及 Token 刷新的核心业务逻辑
  */
 @Service
 @RequiredArgsConstructor
