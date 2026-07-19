@@ -12,6 +12,8 @@ services:
       MYSQL_HOST: lime-mysql
       REDIS_HOST: lime-redis
       MINIO_ENDPOINT: http://lime-minio:9000
+      # 改成你服务器的公网 IP 或域名，Android 设备用这个地址访问图片
+      MINIO_PUBLIC_ENDPOINT: ${MINIO_PUBLIC_ENDPOINT}
       ROCKETMQ_NAMESRV: lime-namesrv:9876
     depends_on:
       mysql:
