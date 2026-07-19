@@ -1,0 +1,133 @@
+package com.lzz.lime_server.service.impl;
+
+import com.lzz.lime_server.common.exception.BusinessException;
+import com.lzz.lime_server.service.FileUploadService;
+import io.minio.MinioClient;
+import io.minio.PutObjectArgs;
+import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.stereotype.Service;
+import org.springframework.web.multipart.MultipartFile;
+
+import java.util.Set;
+import java.util.UUID;
+
+/**
+ * 文件上传服务实现类
+ * <p>
+ * 上传头像、背景图
+ * </p>
+
+ */
+@Service
+@RequiredArgsConstructor
+public class FileUploadServiceImpl implements FileUploadService {
+
+    private final MinioClient minioClient;
+
+    @Value("${minio.endpoint}")
+    private String endpoint;
+
+    // 返回给客户端的公网地址，默认回退到 endpoint
+    @Value("${minio.public-endpoint:${minio.endpoint}}")
+    private String publicEndpoint;
+
+    @Value("${minio.bucket-name}")
+    private String bucketName;
+    // 大小限制 5M
+    private static final long MAX_SIZE = 5 * 1024 * 1024L;
+    private static final Set<String> ALLOWED_TYPES = Set.of(
+            "image/jpeg", "image/png", "image/webp", "image/gif"
+    );
+
+    /**
+     * 上传用户头像
+     * <p>
+     * 执行文件校验后，将文件流式传输至 MinIO 的 avatars/ 目录下，
+     * 返回拼接好的公网访问 URL。
+     * </p>
+     *
+     * @param file 上传的头像图片文件
+     * @return 头像图片的公网访问 URL
+     * @throws BusinessException 当文件为空、格式不合法、超过大小限制或上传失败时抛出
+     */
+    @Override
+    public String uploadAvatar(MultipartFile file) {
+        if (file == null || file.isEmpty()) {
+            throw new BusinessException("文件不能为空");
+        }
+        String contentType = file.getContentType();
+        if (contentType == null || !ALLOWED_TYPES.contains(contentType)) {
+            throw new BusinessException("只支持 JPG、PNG、WebP、GIF 格式");
+        }
+        if (file.getSize() > MAX_SIZE) {
+            throw new BusinessException("头像文件不能超过 5MB");
+        }
+        // 提取 MIME 类型中的后缀
+        String ext = contentType.substring(contentType.lastIndexOf('/') + 1);
+        if ("jpeg".equals(ext)) ext = "jpg";
+        String objectName = "avatars/" + UUID.randomUUID() + "." + ext;
+        //eg:  "avatars/550e8400-e29b-41d4-a716-446655440000.jpg"
+        // MinIO 文件上传
+        try {
+            minioClient.putObject(
+                    PutObjectArgs.builder()
+                            .bucket(bucketName)
+                            .object(objectName)
+                            .stream(file.getInputStream(), file.getSize(), -1)
+                            .contentType(contentType)
+                            .build()
+            );
+        } catch (Exception e) {
+            throw new BusinessException("文件上传失败: " + e.getMessage());
+        }
+        // 检查配置的公网地址末尾是否已经包含了 /
+        String base = publicEndpoint.endsWith("/") ? publicEndpoint : publicEndpoint + "/";
+        return base + bucketName + "/" + objectName;
+    }
+
+    /**
+     * 上传用户个人主页背景图
+     * <p>
+     * 执行文件校验后，将文件流式传输至 MinIO 的 backgrounds/ 目录下，
+     * 并返回拼接好的公网访问 URL。
+     * </p>
+     *
+     * @param file 上传的背景图片文件
+     * @return 背景图片的公网访问 URL
+     * @throws BusinessException 当文件为空、格式不合法、超过大小限制或上传失败时抛出
+     */
+    @Override
+    public String uploadBackground(MultipartFile file) {
+        if (file == null || file.isEmpty()) {
+            throw new BusinessException("文件不能为空");
+        }
+        String contentType = file.getContentType();
+        if (contentType == null || !ALLOWED_TYPES.contains(contentType)) {
+            throw new BusinessException("只支持 JPG、PNG、WebP、GIF 格式");
+        }
+        if (file.getSize() > MAX_SIZE) {
+            throw new BusinessException("背景图文件不能超过 5MB");
+        }
+
+        String ext = contentType.substring(contentType.lastIndexOf('/') + 1);
+        if ("jpeg".equals(ext)) ext = "jpg";
+        String objectName = "backgrounds/" + UUID.randomUUID() + "." + ext;
+
+        try {
+            minioClient.putObject(
+                    PutObjectArgs.builder()
+                            .bucket(bucketName)
+                            .object(objectName)
+                            .stream(file.getInputStream(), file.getSize(), -1)
+                            .contentType(contentType)
+                            .build()
+            );
+        } catch (Exception e) {
+            throw new BusinessException("文件上传失败: " + e.getMessage());
+        }
+
+        String base = publicEndpoint.endsWith("/") ? publicEndpoint : publicEndpoint + "/";
+        return base + bucketName + "/" + objectName;
+    }
+}

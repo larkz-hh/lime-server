@@ -8,7 +8,9 @@ import com.lzz.lime_server.dto.response.LoginResponse;
 
 /**
  * 认证服务接口
- * 发验证码、注册、登录、登出、Token 刷新
+ * <p>
+ * 发验证码、注册、登录、登出、Token 刷新。
+ * </p>
  */
 public interface AuthService {
 
