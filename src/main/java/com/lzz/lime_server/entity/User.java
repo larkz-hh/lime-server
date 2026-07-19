@@ -3,6 +3,7 @@ package com.lzz.lime_server.entity;
 import com.baomidou.mybatisplus.annotation.*;
 import lombok.Data;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 
 @Data
@@ -25,6 +26,15 @@ public class User {
     private String phone;
 
     private String avatar;
+
+    private String backgroundImage;
+
+    /** 性别：0=未设置，1=男，2=女 */
+    private Integer gender;
+
+    private LocalDate birthday;
+
+    private String region;
 
     private String role;
 
