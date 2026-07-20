@@ -305,3 +305,75 @@ Access Token 过期后，用 Refresh Token 换取新的双 Token。
 | file | file | 是   | 图片文件，支持 JPG / PNG / WebP / GIF，最大 5MB |
 
 **响应**：返回更新后的用户信息，结构同「获取当前用户信息」，`backgroundImage` 字段为新背景图的访问 URL。
+
+---
+
+### 修改密码
+
+`PUT /api/user/me/password`
+
+支持两种身份验证方式，`oldPassword` 与 `code` 二选一。使用验证码方式前需先调用 `/api/auth/send-code` 向当前账号绑定的邮箱发送验证码。修改成功后当前 Token 立即失效，客户端需重新登录获取新 Token。
+
+**原密码方式**
+
+```json
+{
+  "oldPassword": "abc123",
+  "newPassword": "newpass456"
+}
+```
+
+**验证码方式**
+
+```json
+{
+  "code": "123456",
+  "newPassword": "newpass456"
+}
+```
+
+| 字段        | 类型   | 必填   | 说明                          |
+|-------------|--------|--------|-------------------------------|
+| oldPassword | string | 二选一 | 当前密码                      |
+| code        | string | 二选一 | 邮箱验证码                    |
+| newPassword | string | 是     | 新密码，6-32 位               |
+
+**响应**
+
+```json
+{
+  "code": 200,
+  "message": "操作成功",
+  "data": null
+}
+```
+
+---
+
+### 注销账号
+
+`DELETE /api/user/me`
+
+账号软删除，数据库记录保留但标记为已删除，注销后 Token 立即失效。需提供当前密码二次确认身份。
+
+**请求体**
+
+```json
+{
+  "password": "abc123"
+}
+```
+
+| 字段     | 类型   | 必填 | 说明                     |
+|----------|--------|------|--------------------------|
+| password | string | 是   | 当前账号密码，用于身份确认 |
+
+**响应**
+
+```json
+{
+  "code": 200,
+  "message": "操作成功",
+  "data": null
+}
+```
