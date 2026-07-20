@@ -2,13 +2,18 @@ package com.lzz.lime_server.service.impl;
 
 import com.lzz.lime_server.common.ResultCode;
 import com.lzz.lime_server.common.exception.BusinessException;
+import com.lzz.lime_server.dto.request.ChangePasswordRequest;
+import com.lzz.lime_server.dto.request.DeleteAccountRequest;
 import com.lzz.lime_server.dto.request.UpdateProfileRequest;
 import com.lzz.lime_server.dto.response.UserInfoResponse;
 import com.lzz.lime_server.entity.User;
 import com.lzz.lime_server.mapper.UserMapper;
+import com.lzz.lime_server.service.AuthService;
 import com.lzz.lime_server.service.FileUploadService;
 import com.lzz.lime_server.service.UserService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 import org.springframework.web.multipart.MultipartFile;
@@ -26,8 +31,14 @@ import org.springframework.web.multipart.MultipartFile;
 @RequiredArgsConstructor
 public class UserServiceImpl implements UserService {
 
+    // Redis Key 前缀
+    private static final String EMAIL_CODE_KEY_PREFIX = "email:code:";
+
     private final UserMapper userMapper;
     private final FileUploadService fileUploadService;
+    private final PasswordEncoder passwordEncoder;
+    private final AuthService authService;
+    private final StringRedisTemplate redisTemplate;
 
     /**
      * 获取指定用户的个人信息
@@ -146,6 +157,78 @@ public class UserServiceImpl implements UserService {
         return toResponse(user);
     }
 
+
+    /**
+     * 修改当前用户密码
+     * <p>
+     * 支持两种身份验证方式：
+     * - 原密码验证：直接比对 BCrypt 哈希
+     * - 邮箱验证码验证：校验 Redis 中存储的验证码
+     * 验证通过后将新密码加密存储，并立即使当前 Token 失效，要求用户重新登录。
+     * </p>
+     *
+     * @param userId      用户唯一标识 ID
+     * @param accessToken 当前请求携带的 Access Token，修改成功后加入黑名单
+     * @param request     包含新密码以及原密码或验证码的请求对象
+     * @throws BusinessException 当用户不存在、原密码/验证码错误，或两者均为空时抛出
+     */
+    @Override
+    public void changePassword(Long userId, String accessToken, ChangePasswordRequest request) {
+        if (request.getOldPassword() == null && request.getCode() == null) {
+            throw new BusinessException("原密码或验证码不能同时为空");
+        }
+
+        User user = userMapper.selectById(userId);
+        if (user == null) {
+            throw new BusinessException(ResultCode.NOT_FOUND);
+        }
+
+        if (request.getCode() != null) {
+            // 验证码验证：从 Redis 取出与该邮箱绑定的验证码进行比对
+            String codeKey = EMAIL_CODE_KEY_PREFIX + user.getEmail();
+            String storedCode = redisTemplate.opsForValue().get(codeKey);
+            if (storedCode == null || !storedCode.equals(request.getCode())) {
+                throw new BusinessException("验证码错误或已过期");
+            }
+            redisTemplate.delete(codeKey);
+        } else {
+            // 原密码验证
+            if (!passwordEncoder.matches(request.getOldPassword(), user.getPassword())) {
+                throw new BusinessException("原密码错误");
+            }
+        }
+
+        user.setPassword(passwordEncoder.encode(request.getNewPassword()));
+        userMapper.updateById(user);
+        // 修改密码后使当前 Token 失效，强制重新登录
+        authService.logout(userId, accessToken);
+    }
+
+    /**
+     * 注销当前用户账号（软删除）
+     * <p>
+     * 验证密码后将账号标记为已删除（deleted=1），并使当前 Token 立即失效。
+     * 软删除不会物理删除数据库记录，由 MyBatis-Plus @TableLogic 自动处理。
+     * </p>
+     *
+     * @param userId      用户唯一标识 ID
+     * @param accessToken 当前请求携带的 Access Token，注销成功后加入黑名单
+     * @param request     包含账号密码的确认请求对象
+     * @throws BusinessException 当用户不存在或密码错误时抛出
+     */
+    @Override
+    public void deleteAccount(Long userId, String accessToken, DeleteAccountRequest request) {
+        User user = userMapper.selectById(userId);
+        if (user == null) {
+            throw new BusinessException(ResultCode.NOT_FOUND);
+        }
+        if (!passwordEncoder.matches(request.getPassword(), user.getPassword())) {
+            throw new BusinessException("密码错误");
+        }
+        // 先使 Token 失效，再软删除账号
+        authService.logout(userId, accessToken);
+        userMapper.deleteById(userId);
+    }
 
     /**
      * 将数据库 User 实体转换为对外暴露的 UserInfoResponse DTO

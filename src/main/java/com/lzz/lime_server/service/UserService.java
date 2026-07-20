@@ -1,5 +1,7 @@
 package com.lzz.lime_server.service;
 
+import com.lzz.lime_server.dto.request.ChangePasswordRequest;
+import com.lzz.lime_server.dto.request.DeleteAccountRequest;
 import com.lzz.lime_server.dto.request.UpdateProfileRequest;
 import com.lzz.lime_server.dto.response.UserInfoResponse;
 import org.springframework.web.multipart.MultipartFile;
@@ -15,4 +17,6 @@ public interface UserService {
     UserInfoResponse updateProfile(Long userId, UpdateProfileRequest request);
     UserInfoResponse updateAvatar(Long userId, MultipartFile file);
     UserInfoResponse updateBackground(Long userId, MultipartFile file);
+    void changePassword(Long userId, String accessToken, ChangePasswordRequest request);
+    void deleteAccount(Long userId, String accessToken, DeleteAccountRequest request);
 }
