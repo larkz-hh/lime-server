@@ -377,3 +377,90 @@ Access Token 过期后，用 Refresh Token 换取新的双 Token。
   "data": null
 }
 ```
+
+---
+
+## 笔记接口 `/api/notes`
+
+> 以下接口均需登录。
+
+---
+
+### 上传笔记图片
+
+`POST /api/notes/images`
+
+上传单张笔记图片至 MinIO，返回可用于发布笔记的图片 URL。发布笔记前先调用此接口上传全部图片，再将返回的 URL 列表一并提交发布接口。
+
+**需要登录**：是
+
+**Content-Type**：`multipart/form-data`
+
+| 字段 | 类型 | 必填 | 说明                                      |
+|------|------|------|-------------------------------------------|
+| file | file | 是   | 图片文件，支持 JPG / PNG / WebP / GIF，最大 10MB |
+
+**响应**
+
+```json
+{
+  "code": 200,
+  "message": "操作成功",
+  "data": {
+    "url": "http://minio-host/lime/notes/uuid.jpg"
+  }
+}
+```
+
+---
+
+### 发布图文笔记
+
+`POST /api/notes`
+
+提交笔记正文与已上传的图片 URL 列表，创建并发布笔记。标题和正文至少填写一项。
+
+**需要登录**：是
+
+**请求体**
+
+```json
+{
+  "title": "今天又水了一天代码",
+  "content": "收到...",
+  "images": [
+    { "url": "http://minio-host/lime/notes/uuid1.jpg", "sortOrder": 0 },
+    { "url": "http://minio-host/lime/notes/uuid2.jpg", "sortOrder": 1 }
+  ]
+}
+```
+
+| 字段               | 类型   | 必填 | 说明                             |
+|--------------------|--------|------|----------------------------------|
+| title              | string | 否   | 笔记标题，最多 100 字符；与 content 至少填一项 |
+| content            | string | 否   | 笔记正文，最多 1000 字符；与 title 至少填一项  |
+| images             | array  | 是   | 图片列表，1 ~ 9 张               |
+| images[].url       | string | 是   | 图片 URL（由上传接口返回）       |
+| images[].sortOrder | number | 否   | 排列顺序，从 0 开始，默认 0      |
+
+**响应**
+
+```json
+{
+  "code": 200,
+  "message": "操作成功",
+  "data": {
+    "id": 1,
+    "userId": 42,
+    "title": "今天又水了一天代码",
+    "content": "收到...",
+    "status": 1,
+    "images": [
+      { "id": 1, "url": "http://minio-host/lime/notes/uuid1.jpg", "sortOrder": 0 },
+      { "id": 2, "url": "http://minio-host/lime/notes/uuid2.jpg", "sortOrder": 1 }
+    ],
+    "createTime": "2026-07-20T10:30:00",
+    "updateTime": "2026-07-20T10:30:00"
+  }
+}
+```
