@@ -48,7 +48,7 @@ public class NoteServiceImpl implements NoteService {
         note.setUserId(userId);
         note.setTitle(request.getTitle());
         note.setContent(request.getContent());
-        note.setStatus(1);
+        note.setStatus(request.getStatus() != null ? request.getStatus() : 1);
         note.setLikeCount(0);
         note.setFavCount(0);
         note.setViewCount(0);

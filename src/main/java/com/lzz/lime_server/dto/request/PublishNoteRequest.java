@@ -11,6 +11,9 @@ import java.util.List;
 @Data
 public class PublishNoteRequest {
 
+    //  0=草稿，1=已发布，默认发布
+    private Integer status = 1;
+
     @Size(max = 100, message = "标题不能超过 100 个字符")
     private String title;
 
