@@ -437,6 +437,7 @@ Access Token 过期后，用 Refresh Token 换取新的双 Token。
 
 | 字段               | 类型   | 必填 | 说明                             |
 |--------------------|--------|------|----------------------------------|
+| status             | number | 否   | 0=草稿，1=已发布，默认 1         |
 | title              | string | 否   | 笔记标题，最多 100 字符；与 content 至少填一项 |
 | content            | string | 否   | 笔记正文，最多 1000 字符；与 title 至少填一项  |
 | images             | array  | 是   | 图片列表，1 ~ 9 张               |
