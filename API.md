@@ -386,6 +386,62 @@ Access Token 过期后，用 Refresh Token 换取新的双 Token。
 
 ---
 
+### 获取信息流（Feed）
+
+`GET /api/notes/feed`
+
+返回已发布笔记的卡片列表，采用 Cursor 分页，以笔记 ID 作为游标，每次返回最新的一批笔记。首次请求不传 `cursor`，后续翻页将上次响应的 `nextCursor` 作为下一次请求的 `cursor` 传入。
+
+**需要登录**：是
+
+**Query 参数**
+
+| 参数   | 类型   | 必填 | 说明                                    |
+|--------|--------|------|-----------------------------------------|
+| cursor | number | 否   | 上一页最后一条笔记的 ID，不传则从最新开始 |
+| size   | number | 否   | 每页条数，默认 10，最大 50               |
+
+**响应**
+
+```json
+{
+  "code": 200,
+  "message": "操作成功",
+  "data": {
+    "items": [
+      {
+        "id": 42,
+        "title": "关注科协喵",
+        "coverImage": "http://minio-host/lime/notes/uuid1.jpg",
+        "likeCount": 128,
+        "author": {
+          "id": 7,
+          "nickname": "taffy",
+          "avatar": "http://minio-host/lime/avatars/uuid.jpg"
+        }
+      }
+    ],
+    "nextCursor": 38,
+    "hasMore": true
+  }
+}
+```
+
+| 字段               | 类型    | 说明                                             |
+|--------------------|---------|--------------------------------------------------|
+| items              | array   | 笔记卡片列表                                      |
+| items[].id         | number  | 笔记 ID                                           |
+| items[].title      | string  | 笔记标题，可为 null                               |
+| items[].coverImage | string  | 封面图（第一张图片 URL），无图片时为 null          |
+| items[].likeCount  | number  | 点赞数                                            |
+| items[].author.id       | number | 作者用户 ID                                  |
+| items[].author.nickname | string | 作者昵称                                     |
+| items[].author.avatar   | string | 作者头像 URL，可为 null                      |
+| nextCursor         | number  | 下一页游标（最后一条笔记的 ID），无更多数据时为 null |
+| hasMore            | boolean | 是否还有更多数据                                  |
+
+---
+
 ### 上传笔记图片
 
 `POST /api/notes/images`

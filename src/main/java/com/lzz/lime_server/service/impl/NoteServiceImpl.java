@@ -2,6 +2,8 @@ package com.lzz.lime_server.service.impl;
 
 import com.lzz.lime_server.common.exception.BusinessException;
 import com.lzz.lime_server.dto.request.PublishNoteRequest;
+import com.lzz.lime_server.dto.response.CursorPage;
+import com.lzz.lime_server.dto.response.NoteFeedResponse;
 import com.lzz.lime_server.dto.response.NoteResponse;
 import com.lzz.lime_server.entity.Note;
 import com.lzz.lime_server.entity.NoteImage;
@@ -18,7 +20,7 @@ import java.util.List;
 
 /**
  * 笔记接口实现类
- * <p>负责笔记的发布、更新等</p>
+ * <p>负责笔记的发布、更新、信息流获取等</p>
  */
 @Service
 @RequiredArgsConstructor
@@ -65,6 +67,44 @@ public class NoteServiceImpl implements NoteService {
         images.forEach(noteImageMapper::insert);// 逐条插入图片
 
         return toResponse(note, images);
+    }
+
+    /**
+     * 获取笔记信息流数据，游标分页。
+     *
+     * @param cursor 游标，即上一页最后一条笔记的ID。首次请求时传 null，后续请求传入返回的 nextCursor
+     * @param size   每页期望获取的笔记条数
+     * @return       包含笔记列表、下一页游标及是否有更多数据的分页对象
+     */
+    @Override
+    public CursorPage<NoteFeedResponse> getFeed(Long cursor, int size) {
+        // 多查一条数据，判断是否还有下一页
+        List<NoteMapper.NoteFeedRow> rows = noteMapper.selectFeed(cursor, size + 1);
+
+        boolean hasMore = rows.size() > size;
+        if (hasMore) {
+            rows = rows.subList(0, size);
+        }// 丢弃多的一条，保留当前页所需的数据
+
+        // 将数据库返回的扁平化投影对象转换为面向前端的结构化响应对象
+        List<NoteFeedResponse> items = rows.stream().map(row -> {
+            NoteFeedResponse item = new NoteFeedResponse();
+            item.setId(row.getId());
+            item.setTitle(row.getTitle());
+            item.setCoverImage(row.getCoverImage());
+            item.setLikeCount(row.getLikeCount());
+
+            NoteFeedResponse.AuthorBrief author = new NoteFeedResponse.AuthorBrief();
+            author.setId(row.getAuthorId());
+            author.setNickname(row.getAuthorNickname());
+            author.setAvatar(row.getAuthorAvatar());
+            item.setAuthor(author);
+            return item;
+        }).toList();
+
+        // 还有下一页，将当前页最后一条笔记的 ID 作为下一次请求的游标
+        Long nextCursor = hasMore ? items.getLast().getId() : null;
+        return CursorPage.of(items, nextCursor, hasMore);
     }
 
     /**
