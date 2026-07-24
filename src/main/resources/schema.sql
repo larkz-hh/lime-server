@@ -20,6 +20,22 @@ CREATE TABLE IF NOT EXISTS `note_image` (
     `create_time` DATETIME     DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE IF NOT EXISTS `note_like` (
+    `id`          BIGINT       AUTO_INCREMENT PRIMARY KEY,
+    `note_id`     BIGINT       NOT NULL,
+    `user_id`     BIGINT       NOT NULL,
+    `create_time` DATETIME     DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE KEY `uk_like_note_user` (`note_id`, `user_id`)
+);
+
+CREATE TABLE IF NOT EXISTS `note_fav` (
+    `id`          BIGINT       AUTO_INCREMENT PRIMARY KEY,
+    `note_id`     BIGINT       NOT NULL,
+    `user_id`     BIGINT       NOT NULL,
+    `create_time` DATETIME     DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE KEY `uk_fav_note_user` (`note_id`, `user_id`)
+);
+
 CREATE TABLE IF NOT EXISTS `user` (
     `id`          BIGINT       AUTO_INCREMENT PRIMARY KEY,
     `email`       VARCHAR(100) NOT NULL UNIQUE,

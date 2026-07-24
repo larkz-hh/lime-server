@@ -1,26 +1,26 @@
 package com.lzz.lime_server.service.impl;
 
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.lzz.lime_server.common.exception.BusinessException;
 import com.lzz.lime_server.dto.request.PublishNoteRequest;
 import com.lzz.lime_server.dto.response.CursorPage;
 import com.lzz.lime_server.dto.response.NoteFeedResponse;
 import com.lzz.lime_server.dto.response.NoteResponse;
-import com.lzz.lime_server.entity.Note;
-import com.lzz.lime_server.entity.NoteImage;
-import com.lzz.lime_server.mapper.NoteImageMapper;
-import com.lzz.lime_server.mapper.NoteMapper;
+import com.lzz.lime_server.entity.*;
+import com.lzz.lime_server.mapper.*;
 import com.lzz.lime_server.service.NoteService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
-
 import java.util.List;
 
 
 /**
  * 笔记接口实现类
- * <p>负责笔记的发布、更新、信息流获取等</p>
+ * <p>负责笔记的发布、更新、信息流获取、点赞、收藏等</p>
  */
 @Service
 @RequiredArgsConstructor
@@ -28,6 +28,12 @@ public class NoteServiceImpl implements NoteService {
 
     private final NoteMapper noteMapper;
     private final NoteImageMapper noteImageMapper;
+    private final NoteLikeMapper noteLikeMapper;
+    private final NoteFavMapper noteFavMapper;
+    private final UserMapper userMapper;
+    private final StringRedisTemplate redisTemplate;
+    private static final String LIKE_COUNT_PREFIX = "note:like:";
+    private static final String FAV_COUNT_PREFIX  = "note:fav:";
 
     /**
      * 发布图文笔记
@@ -105,6 +111,120 @@ public class NoteServiceImpl implements NoteService {
         // 还有下一页，将当前页最后一条笔记的 ID 作为下一次请求的游标
         Long nextCursor = hasMore ? items.getLast().getId() : null;
         return CursorPage.of(items, nextCursor, hasMore);
+    }
+
+    /**
+     * 点赞笔记（重复点赞直接返回）。
+     *
+     * @param noteId 笔记 ID
+     * @param userId 当前用户 ID
+     */
+    @Override
+    @Transactional
+    public void likeNote(Long noteId, Long userId) {
+        ensureNoteExists(noteId);
+
+        boolean alreadyLiked = noteLikeMapper.selectCount(
+                new LambdaQueryWrapper<NoteLike>()
+                        .eq(NoteLike::getNoteId, noteId)
+                        .eq(NoteLike::getUserId, userId)) > 0;
+        if (alreadyLiked) return;// 幂等检查
+
+        NoteLike like = new NoteLike();
+        like.setNoteId(noteId);
+        like.setUserId(userId);
+        noteLikeMapper.insert(like);
+
+        // 点赞数增加
+        noteMapper.update(null, new LambdaUpdateWrapper<Note>()
+                .eq(Note::getId, noteId)
+                .setSql("like_count = like_count + 1"));
+
+        // 写后删除缓存，下次读取时再重新加载
+        redisTemplate.delete(LIKE_COUNT_PREFIX + noteId);
+    }
+
+    /**
+     * 取消点赞，（未点赞时直接返回）。
+     *
+     * @param noteId 笔记 ID
+     * @param userId 当前用户 ID
+     */
+    @Override
+    @Transactional
+    public void unlikeNote(Long noteId, Long userId) {
+        int deleted = noteLikeMapper.delete(
+                new LambdaQueryWrapper<NoteLike>()
+                        .eq(NoteLike::getNoteId, noteId)
+                        .eq(NoteLike::getUserId, userId));
+        if (deleted == 0) return;// 未点赞，幂等返回
+        
+        noteMapper.update(null, new LambdaUpdateWrapper<Note>()
+                .eq(Note::getId, noteId)
+                .setSql("like_count = GREATEST(like_count - 1, 0)"));// 防止计数降为负数
+
+        redisTemplate.delete(LIKE_COUNT_PREFIX + noteId);
+    }
+
+    /**
+     * 收藏笔记，幂等操作。
+     *
+     * @param noteId 笔记 ID
+     * @param userId 当前用户 ID
+     */
+    @Override
+    @Transactional
+    public void favoriteNote(Long noteId, Long userId) {
+        ensureNoteExists(noteId);
+
+        boolean alreadyFav = noteFavMapper.selectCount(
+                new LambdaQueryWrapper<NoteFav>()
+                        .eq(NoteFav::getNoteId, noteId)
+                        .eq(NoteFav::getUserId, userId)) > 0;
+        if (alreadyFav) return;
+
+        NoteFav fav = new NoteFav();
+        fav.setNoteId(noteId);
+        fav.setUserId(userId);
+        noteFavMapper.insert(fav);
+
+        noteMapper.update(null, new LambdaUpdateWrapper<Note>()
+                .eq(Note::getId, noteId)
+                .setSql("fav_count = fav_count + 1"));
+
+        redisTemplate.delete(FAV_COUNT_PREFIX + noteId);
+    }
+
+    /**
+     * 取消收藏，幂等操作。
+     *
+     * @param noteId 笔记 ID
+     * @param userId 当前用户 ID
+     */
+    @Override
+    @Transactional
+    public void unfavoriteNote(Long noteId, Long userId) {
+        int deleted = noteFavMapper.delete(
+                new LambdaQueryWrapper<NoteFav>()
+                        .eq(NoteFav::getNoteId, noteId)
+                        .eq(NoteFav::getUserId, userId));
+        if (deleted == 0) return;
+
+        noteMapper.update(null, new LambdaUpdateWrapper<Note>()
+                .eq(Note::getId, noteId)
+                .setSql("fav_count = GREATEST(fav_count - 1, 0)"));
+
+        redisTemplate.delete(FAV_COUNT_PREFIX + noteId);
+    }
+
+
+
+    /** 校验笔记是否存在且已发布。*/
+    private void ensureNoteExists(Long noteId) {
+        Note note = noteMapper.selectById(noteId);
+        if (note == null || note.getStatus() != 1) {
+            throw new BusinessException("笔记不存在");
+        }
     }
 
     /**
