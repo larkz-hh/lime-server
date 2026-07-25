@@ -13,6 +13,8 @@ public interface NoteService {
 
     void likeNote(Long noteId, Long userId);
 
+    NoteDetailResponse getNoteDetail(Long noteId, Long currentUserId);
+
     void unlikeNote(Long noteId, Long userId);
 
     void favoriteNote(Long noteId, Long userId);
