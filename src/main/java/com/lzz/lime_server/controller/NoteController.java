@@ -37,7 +37,7 @@ public class NoteController {
             @RequestParam(required = false) Long cursor,
             @RequestParam(defaultValue = "10") int size) {
         size = Math.min(size, 50);
-        return Result.success(noteService.getFeed(cursor, size));
+        return Result.success(noteService.getFeed(cursor, size, currentUserId()));
     }
 
     /// 发布图文笔记

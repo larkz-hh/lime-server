@@ -9,6 +9,7 @@ public class NoteFeedResponse {
     private String title;
     private String coverImage;
     private Integer likeCount;
+    private Boolean liked;
     private AuthorBrief author;
 
     @Data

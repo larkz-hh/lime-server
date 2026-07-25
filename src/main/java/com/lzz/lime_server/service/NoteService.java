@@ -9,7 +9,7 @@ import com.lzz.lime_server.dto.response.NoteResponse;
 public interface NoteService {
     NoteResponse publishNote(Long userId, PublishNoteRequest request);
 
-    CursorPage<NoteFeedResponse> getFeed(Long cursor, int size);
+    CursorPage<NoteFeedResponse> getFeed(Long cursor, int size, Long userId);
 
     void likeNote(Long noteId, Long userId);
 

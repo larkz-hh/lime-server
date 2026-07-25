@@ -434,6 +434,7 @@ Access Token 过期后，用 Refresh Token 换取新的双 Token。
 | items[].title      | string  | 笔记标题，可为 null                               |
 | items[].coverImage | string  | 封面图（第一张图片 URL），无图片时为 null          |
 | items[].likeCount  | number  | 点赞数                                            |
+| items[].liked      | boolean | 当前用户是否已点赞该笔记                           |
 | items[].author.id       | number | 作者用户 ID                                  |
 | items[].author.nickname | string | 作者昵称                                     |
 | items[].author.avatar   | string | 作者头像 URL，可为 null                      |

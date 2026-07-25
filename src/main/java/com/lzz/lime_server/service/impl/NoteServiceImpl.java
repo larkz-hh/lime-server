@@ -17,7 +17,9 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 import java.util.List;
+import java.util.Set;
 import java.util.concurrent.TimeUnit;
+import java.util.stream.Collectors;
 
 
 /**
@@ -83,10 +85,11 @@ public class NoteServiceImpl implements NoteService {
      *
      * @param cursor 游标，即上一页最后一条笔记的ID。首次请求时传 null，后续请求传入返回的 nextCursor
      * @param size   每页期望获取的笔记条数
+     * @param userId 当前登录用户 ID，用于批量判断每条笔记的点赞状态
      * @return       包含笔记列表、下一页游标及是否有更多数据的分页对象
      */
     @Override
-    public CursorPage<NoteFeedResponse> getFeed(Long cursor, int size) {
+    public CursorPage<NoteFeedResponse> getFeed(Long cursor, int size, Long userId) {
         // 多查一条数据，判断是否还有下一页
         List<NoteMapper.NoteFeedRow> rows = noteMapper.selectFeed(cursor, size + 1);
 
@@ -110,6 +113,17 @@ public class NoteServiceImpl implements NoteService {
             item.setAuthor(author);
             return item;
         }).toList();
+
+        // fix: 批量查询当前用户对这批笔记的点赞状态，一次 IN 查询代替 N 次单条查询
+        if (!items.isEmpty()) {
+            List<Long> noteIds = items.stream().map(NoteFeedResponse::getId).toList();
+            Set<Long> likedNoteIds = noteLikeMapper.selectList(
+                            new LambdaQueryWrapper<NoteLike>()
+                                    .eq(NoteLike::getUserId, userId)
+                                    .in(NoteLike::getNoteId, noteIds))
+                    .stream().map(NoteLike::getNoteId).collect(Collectors.toSet());
+            items.forEach(item -> item.setLiked(likedNoteIds.contains(item.getId())));
+        }
 
         // 还有下一页，将当前页最后一条笔记的 ID 作为下一次请求的游标
         Long nextCursor = hasMore ? items.getLast().getId() : null;
