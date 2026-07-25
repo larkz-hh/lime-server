@@ -47,6 +47,12 @@ public class NoteController {
         return Result.success(resp);
     }
 
+    /// 获取笔记详情
+    @GetMapping("/{id}")
+    public Result<NoteDetailResponse> getNoteDetail(@PathVariable Long id) {
+        return Result.success(noteService.getNoteDetail(id, currentUserId()));
+    }
+
     /// 点赞笔记
     @PostMapping("/{id}/like")
     public Result<Void> likeNote(@PathVariable Long id) {
