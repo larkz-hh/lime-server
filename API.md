@@ -470,6 +470,93 @@ Access Token 过期后，用 Refresh Token 换取新的双 Token。
 
 ---
 
+### 获取笔记详情
+
+`GET /api/notes/{id}`
+
+**需要登录**：是
+
+**Path 参数**
+
+| 参数 | 类型   | 说明    |
+|------|--------|---------|
+| id   | number | 笔记 ID |
+
+**响应**
+
+```json
+{
+  "code": 200,
+  "message": "操作成功",
+  "data": {
+    "id": 42,
+    "title": "今天又水了一天代码",
+    "content": "收到...",
+    "status": 1,
+    "images": [
+      { "id": 1, "url": "http://minio-host/lime/notes/uuid1.jpg", "sortOrder": 0 }
+    ],
+    "likeCount": 128,
+    "favCount": 36,
+    "viewCount": 1024,
+    "liked": false,
+    "favorited": true,
+    "author": {
+      "id": 7,
+      "nickname": "taffy",
+      "avatar": "http://minio-host/lime/avatars/uuid.jpg"
+    },
+    "createTime": "2026-07-20T10:30:00",
+    "updateTime": "2026-07-20T10:30:00"
+  }
+}
+```
+
+| 字段       | 类型    | 说明                              |
+|------------|---------|-----------------------------------|
+| liked      | boolean | 当前用户是否已点赞                 |
+| favorited  | boolean | 当前用户是否已收藏                 |
+| viewCount  | number  | 浏览量（每次请求该接口自动 +1）    |
+
+---
+
+### 点赞 / 取消点赞
+
+`POST /api/notes/{id}/like` — 点赞
+
+`DELETE /api/notes/{id}/like` — 取消点赞
+
+**需要登录**：是。两个接口均为幂等操作，重复调用不报错。
+
+**请求体**：无
+
+**响应**
+
+```json
+{ "code": 200, "message": "操作成功", "data": null }
+```
+
+---
+
+### 收藏 / 取消收藏
+
+`POST /api/notes/{id}/favorite` — 收藏
+
+`DELETE /api/notes/{id}/favorite` — 取消收藏
+
+**需要登录**：是。两个接口均为幂等操作，重复调用不报错。
+
+**请求体**：无
+
+**响应**
+
+```json
+{ "code": 200, "message": "操作成功", "data": null }
+```
+
+---
+---
+
 ### 发布图文笔记
 
 `POST /api/notes`

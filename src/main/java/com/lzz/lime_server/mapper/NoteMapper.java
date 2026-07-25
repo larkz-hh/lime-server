@@ -34,6 +34,11 @@ public interface NoteMapper extends BaseMapper<Note> {
             @Result(property = "authorNickname", column = "author_nickname"),
             @Result(property = "authorAvatar",   column = "author_avatar")
     })
+
+    /// 增加浏览量
+    @Update("UPDATE note SET view_count = view_count + 1 WHERE id = #{id}")
+    void incrementViewCount(@Param("id") Long id);
+
     List<NoteFeedRow> selectFeed(@Param("cursor") Long cursor, @Param("size") int size);
 
     /**

@@ -5,6 +5,7 @@ import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.lzz.lime_server.common.exception.BusinessException;
 import com.lzz.lime_server.dto.request.PublishNoteRequest;
 import com.lzz.lime_server.dto.response.CursorPage;
+import com.lzz.lime_server.dto.response.NoteDetailResponse;
 import com.lzz.lime_server.dto.response.NoteFeedResponse;
 import com.lzz.lime_server.dto.response.NoteResponse;
 import com.lzz.lime_server.entity.*;
@@ -16,6 +17,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 import java.util.List;
+import java.util.concurrent.TimeUnit;
 
 
 /**
@@ -34,6 +36,7 @@ public class NoteServiceImpl implements NoteService {
     private final StringRedisTemplate redisTemplate;
     private static final String LIKE_COUNT_PREFIX = "note:like:";
     private static final String FAV_COUNT_PREFIX  = "note:fav:";
+    private static final long   COUNT_TTL_MINUTES = 10;
 
     /**
      * 发布图文笔记
@@ -112,6 +115,120 @@ public class NoteServiceImpl implements NoteService {
         Long nextCursor = hasMore ? items.getLast().getId() : null;
         return CursorPage.of(items, nextCursor, hasMore);
     }
+
+
+    /**
+     * 构建笔记详情响应对象。
+     *
+     * @param note       笔记实体对象，包含标题、内容、状态及时间等基础信息
+     * @param images     笔记关联的图片列表
+     * @param author     笔记作者的用户信息（允许为 null）
+     * @param likeCount  笔记的点赞总数
+     * @param favCount   笔记的收藏总数
+     * @param liked      当前登录用户是否已点赞该笔记
+     * @param favorited  当前登录用户是否已收藏该笔记
+     * @return 组装完成的笔记详情响应对象
+     */
+    private NoteDetailResponse buildDetailResponse(Note note, List<NoteImage> images, User author,
+                                                   int likeCount, int favCount,
+                                                   boolean liked, boolean favorited) {
+        NoteDetailResponse resp = new NoteDetailResponse();
+        resp.setId(note.getId());
+        resp.setTitle(note.getTitle());
+        resp.setContent(note.getContent());
+        resp.setStatus(note.getStatus());
+        resp.setLikeCount(likeCount);
+        resp.setFavCount(favCount);
+        resp.setViewCount(note.getViewCount());
+        resp.setLiked(liked);
+        resp.setFavorited(favorited);
+        resp.setCreateTime(note.getCreateTime());
+        resp.setUpdateTime(note.getUpdateTime());
+
+        resp.setImages(images.stream().map(img -> {
+            NoteDetailResponse.ImageItem item = new NoteDetailResponse.ImageItem();
+            item.setId(img.getId());
+            item.setUrl(img.getUrl());
+            item.setSortOrder(img.getSortOrder());
+            return item;
+        }).toList());
+
+        if (author != null) {
+            NoteDetailResponse.AuthorInfo info = new NoteDetailResponse.AuthorInfo();
+            info.setId(author.getId());
+            info.setNickname(author.getNickname());
+            info.setAvatar(author.getAvatar());
+            resp.setAuthor(info);
+        }
+
+        return resp;
+    }
+
+
+    /**
+     * 获取笔记详情。
+     * <p>点赞/收藏计数优先读 Redis（TTL 10 分钟），缓存未命中时从 DB 取值并回填缓存；
+     * 写操作（点赞/取消）主动删除 Redis key，保证最终一致性。</p>
+     *
+     * @param noteId        笔记 ID
+     * @param currentUserId 当前登录用户 ID，用于判断 liked / favorited 状态
+     * @return 笔记详情响应，包含完整图文、作者信息、互动计数及当前用户状态
+     */
+    @Override
+    public NoteDetailResponse getNoteDetail(Long noteId, Long currentUserId) {
+        Note note = noteMapper.selectById(noteId);
+        if (note == null || note.getStatus() != 1) {
+            throw new BusinessException("笔记不存在");
+        }
+
+        // 按 sort_order 升序加载所有图片
+        List<NoteImage> images = noteImageMapper.selectList(
+                new LambdaQueryWrapper<NoteImage>()
+                        .eq(NoteImage::getNoteId, noteId)
+                        .orderByAsc(NoteImage::getSortOrder));
+
+        User author = userMapper.selectById(note.getUserId());
+
+        // 计数优先读 Redis，缓存未命中时从 note 记录取值并写入 Redis
+        int likeCount = getCachedCount(LIKE_COUNT_PREFIX + noteId, note.getLikeCount());
+        int favCount  = getCachedCount(FAV_COUNT_PREFIX  + noteId, note.getFavCount());
+
+        // 查当前用户是否已点赞/收藏
+        boolean liked = noteLikeMapper.selectCount(
+                new LambdaQueryWrapper<NoteLike>()
+                        .eq(NoteLike::getNoteId, noteId)
+                        .eq(NoteLike::getUserId, currentUserId)) > 0;
+
+        boolean favorited = noteFavMapper.selectCount(
+                new LambdaQueryWrapper<NoteFav>()
+                        .eq(NoteFav::getNoteId, noteId)
+                        .eq(NoteFav::getUserId, currentUserId)) > 0;
+
+        // 每次详情访问累计浏览量
+        noteMapper.incrementViewCount(noteId);
+
+        return buildDetailResponse(note, images, author, likeCount, favCount, liked, favorited);
+    }
+
+
+
+    /**
+     * 读取点赞/收藏计数
+     *
+     * @param key        Redis key
+     * @param dbFallback selectById 已查到的 DB 计数值
+     */
+    private int getCachedCount(String key, int dbFallback) {
+        String cached = redisTemplate.opsForValue().get(key);
+        // 优先命中 Redis
+        if (cached != null) {
+            return Integer.parseInt(cached);
+        }
+        // 缓存未命中：将 DB 值写入 Redis，设置过期时间
+        redisTemplate.opsForValue().set(key, String.valueOf(dbFallback), COUNT_TTL_MINUTES, TimeUnit.MINUTES);
+        return dbFallback;
+    }
+
 
     /**
      * 点赞笔记（重复点赞直接返回）。
