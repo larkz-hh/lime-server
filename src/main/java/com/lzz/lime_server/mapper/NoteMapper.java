@@ -40,8 +40,36 @@ public interface NoteMapper extends BaseMapper<Note> {
     @Update("UPDATE note SET view_count = view_count + 1 WHERE id = #{id}")
     void incrementViewCount(@Param("id") Long id);
 
+    @Select("""
+            <script>
+            SELECT n.id, n.title, n.like_count, n.status,
+                   ni.url AS cover_image,
+                   u.id AS author_id, u.nickname AS author_nickname, u.avatar AS author_avatar
+            FROM note n
+            LEFT JOIN note_image ni ON ni.note_id = n.id
+                AND ni.sort_order = (SELECT MIN(sort_order) FROM note_image WHERE note_id = n.id)
+            LEFT JOIN `user` u ON u.id = n.user_id
+            WHERE n.user_id = #{userId} AND n.status = #{statusVal} AND n.deleted = 0
+            <if test="cursor != null">AND n.id &lt; #{cursor}</if>
+            ORDER BY n.id DESC
+            LIMIT #{size}
+            </script>
+            """)
+    @Results(id = "userNotesResultMap", value = {
+            @Result(property = "id",             column = "id"),
+            @Result(property = "title",          column = "title"),
+            @Result(property = "likeCount",      column = "like_count"),
+            @Result(property = "status",         column = "status"),
+            @Result(property = "coverImage",     column = "cover_image"),
+            @Result(property = "authorId",       column = "author_id"),
+            @Result(property = "authorNickname", column = "author_nickname"),
+            @Result(property = "authorAvatar",   column = "author_avatar")
+    })
+    List<NoteFeedRow> selectUserNotes(@Param("userId") Long userId, @Param("statusVal") int statusVal,
+                                      @Param("cursor") Long cursor, @Param("size") int size);
+
     /**
-     * selectFeed 方法返回的扁平化投影对象，
+     * selectFeed / selectUserNotes 方法返回的扁平化投影对象，
      * 在 Service 层中被转换为 NoteFeedResponse
      */
     @Data
@@ -49,6 +77,7 @@ public interface NoteMapper extends BaseMapper<Note> {
         private Long id;
         private String title;
         private Integer likeCount;
+        private Integer status;
         private String coverImage;
         private Long authorId;
         private String authorNickname;
