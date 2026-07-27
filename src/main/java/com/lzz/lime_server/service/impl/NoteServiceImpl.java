@@ -81,6 +81,59 @@ public class NoteServiceImpl implements NoteService {
     }
 
     /**
+     * 获取指定用户的笔记列表，游标分页。
+     * <p>草稿（statusVal=0）仅限本人查看，否则抛出业务异常。</p>
+     *
+     * @param targetUserId  目标用户 ID
+     * @param statusVal     0=草稿，1=已发布
+     * @param cursor        游标（上一页最后一条笔记的 ID），首次传 null
+     * @param size          每页条数
+     * @param currentUserId 当前登录用户 ID
+     */
+    @Override
+    public CursorPage<NoteFeedResponse> getUserNotes(Long targetUserId, int statusVal, Long cursor, int size, Long currentUserId) {
+        // 草稿验证是否为当前登录用户是否为目标用户
+        if (statusVal == 0 && !targetUserId.equals(currentUserId)) {
+            throw new BusinessException("无权查看他人草稿");
+        }
+
+        List<NoteMapper.NoteFeedRow> rows = noteMapper.selectUserNotes(targetUserId, statusVal, cursor, size + 1);
+
+        boolean hasMore = rows.size() > size;
+        if (hasMore) rows = rows.subList(0, size);
+
+        List<NoteFeedResponse> items = rows.stream().map(row -> {
+            NoteFeedResponse item = new NoteFeedResponse();
+            item.setId(row.getId());
+            item.setTitle(row.getTitle());
+            item.setCoverImage(row.getCoverImage());
+            item.setLikeCount(row.getLikeCount());
+            item.setStatus(row.getStatus());
+
+            NoteFeedResponse.AuthorBrief author = new NoteFeedResponse.AuthorBrief();
+            author.setId(row.getAuthorId());
+            author.setNickname(row.getAuthorNickname());
+            author.setAvatar(row.getAuthorAvatar());
+            item.setAuthor(author);
+            return item;
+        }).toList();
+
+        if (!items.isEmpty()) {
+            List<Long> noteIds = items.stream().map(NoteFeedResponse::getId).toList();
+            Set<Long> likedNoteIds = noteLikeMapper.selectList(
+                            new LambdaQueryWrapper<NoteLike>()
+                                    .eq(NoteLike::getUserId, currentUserId)
+                                    .in(NoteLike::getNoteId, noteIds))
+                    .stream().map(NoteLike::getNoteId).collect(Collectors.toSet());
+            items.forEach(item -> item.setLiked(likedNoteIds.contains(item.getId())));
+        }
+
+        Long nextCursor = hasMore ? items.getLast().getId() : null;
+        return CursorPage.of(items, nextCursor, hasMore);
+    }
+
+
+    /**
      * 获取笔记信息流数据，游标分页。
      *
      * @param cursor 游标，即上一页最后一条笔记的ID。首次请求时传 null，后续请求传入返回的 nextCursor

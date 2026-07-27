@@ -11,6 +11,8 @@ public interface NoteService {
 
     CursorPage<NoteFeedResponse> getFeed(Long cursor, int size, Long userId);
 
+    CursorPage<NoteFeedResponse> getUserNotes(Long targetUserId, int statusVal, Long cursor, int size, Long currentUserId);
+
     void likeNote(Long noteId, Long userId);
 
     NoteDetailResponse getNoteDetail(Long noteId, Long currentUserId);
