@@ -1,6 +1,7 @@
 package com.lzz.lime_server.controller;
 
 import com.lzz.lime_server.common.Result;
+import com.lzz.lime_server.common.exception.BusinessException;
 import com.lzz.lime_server.dto.request.PublishNoteRequest;
 import com.lzz.lime_server.dto.response.CursorPage;
 import com.lzz.lime_server.dto.response.NoteDetailResponse;
@@ -29,6 +30,21 @@ public class NoteController {
     public Result<Map<String, String>> uploadNoteImage(@RequestParam("file") MultipartFile file) {
         String url = fileUploadService.uploadNoteImage(file);
         return Result.success(Map.of("url", url));
+    }
+
+    /// 获取指定用户的笔记列表，Cursor 分页
+    @GetMapping("/user/{userId}")
+    public Result<CursorPage<NoteFeedResponse>> getUserNotes(
+            @PathVariable Long userId,
+            @RequestParam(defaultValue = "published") String status,
+            @RequestParam(required = false) Long cursor,
+            @RequestParam(defaultValue = "10") int size) {
+        if (!"published".equals(status) && !"draft".equals(status)) {
+            throw new BusinessException("status 参数非法，可选值：published / draft");
+        }
+        int statusVal = "draft".equals(status) ? 0 : 1;
+        size = Math.min(size, 50);
+        return Result.success(noteService.getUserNotes(userId, statusVal, cursor, size, currentUserId()));
     }
 
     /// 首页信息流，Cursor 分页
