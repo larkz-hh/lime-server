@@ -386,6 +386,65 @@ Access Token 过期后，用 Refresh Token 换取新的双 Token。
 
 ---
 
+### 获取用户笔记列表
+
+`GET /api/notes/user/{userId}`
+
+返回指定用户的笔记列表，Cursor 分页。查看草稿需要登录且只能查看自己的草稿，否则返回业务错误。
+
+**需要登录**：是
+
+**Path 参数**
+
+| 参数   | 类型   | 说明    |
+|--------|--------|---------|
+| userId | number | 用户 ID |
+
+**Query 参数**
+
+| 参数   | 类型   | 必填 | 说明                                                    |
+|--------|--------|------|---------------------------------------------------------|
+| status | string | 否   | 筛选状态：`published`（默认）/ `draft`；`draft` 仅限本人 |
+| cursor | number | 否   | 上一页最后一条笔记的 ID，不传则从最新开始                |
+| size   | number | 否   | 每页条数，默认 10，最大 50                               |
+
+**响应**
+
+```json
+{
+  "code": 200,
+  "message": "操作成功",
+  "data": {
+    "items": [
+      {
+        "id": 42,
+        "title": "关注科协喵",
+        "coverImage": "http://minio-host/lime/notes/uuid1.jpg",
+        "likeCount": 128,
+        "liked": false,
+        "status": 1,
+        "author": {
+          "id": 7,
+          "nickname": "taffy",
+          "avatar": "http://minio-host/lime/avatars/uuid.jpg"
+        }
+      }
+    ],
+    "nextCursor": 38,
+    "hasMore": true
+  }
+}
+```
+
+| 字段               | 类型    | 说明                                                     |
+|--------------------|---------|----------------------------------------------------------|
+| items[].status     | number  | 笔记状态：`0`=草稿，`1`=已发布                           |
+| items[].liked      | boolean | 当前用户是否已点赞该笔记                                  |
+| nextCursor         | number  | 下一页游标，无更多数据时为 null                           |
+| hasMore            | boolean | 是否还有更多数据                                          |
+
+---
+
 ### 获取信息流（Feed）
 
 `GET /api/notes/feed`
