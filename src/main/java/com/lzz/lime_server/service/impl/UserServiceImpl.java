@@ -23,7 +23,7 @@ import org.springframework.web.multipart.MultipartFile;
  * 用户服务实现类
  * <p>
  * 负责处理与用户个人信息相关的核心业务逻辑，
- * 包括用户信息查询、基础资料更新以及头像/背景图的上传与更新。
+ * 包括用户信息查询、基础资料更新以及头像/背景图的上传与更新等。
  * </p>
  *
  */
@@ -54,6 +54,24 @@ public class UserServiceImpl implements UserService {
             throw new BusinessException(ResultCode.NOT_FOUND);
         }
         return toResponse(user);
+    }
+
+    /**
+     * 获取指定用户的公开资料
+     *
+     * @param targetUserId 目标用户 ID
+     * @return 封装后的用户信息响应对象（不含邮箱等敏感字段）
+     * @throws BusinessException 当用户不存在时抛出 NOT_FOUND 异常
+     */
+    @Override
+    public UserInfoResponse getUserProfile(Long targetUserId) {
+        User user = userMapper.selectById(targetUserId);
+        if (user == null) {
+            throw new BusinessException(ResultCode.NOT_FOUND);
+        }
+        UserInfoResponse resp = toResponse(user);
+        resp.setEmail(null);
+        return resp;
     }
 
     /**
