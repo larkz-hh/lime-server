@@ -14,6 +14,7 @@ import org.springframework.web.multipart.MultipartFile;
  */
 public interface UserService {
     UserInfoResponse getMyInfo(Long userId);
+    UserInfoResponse getUserProfile(Long targetUserId);
     UserInfoResponse updateProfile(Long userId, UpdateProfileRequest request);
     UserInfoResponse updateAvatar(Long userId, MultipartFile file);
     UserInfoResponse updateBackground(Long userId, MultipartFile file);
