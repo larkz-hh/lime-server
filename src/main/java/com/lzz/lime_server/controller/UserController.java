@@ -32,6 +32,12 @@ public class UserController {
         return Result.success(userService.getMyInfo(currentUserId()));
     }
 
+    /// 获取指定用户的公开资料（昵称、头像、背景图、简介、性别、地区等，不含邮箱）
+    @GetMapping("/{userId}")
+    public Result<UserInfoResponse> getUserProfile(@PathVariable Long userId) {
+        return Result.success(userService.getUserProfile(userId));
+    }
+
     /// 更新当前登录用户的资料
     @PutMapping("/me")
     public Result<UserInfoResponse> updateProfile(@Valid @RequestBody UpdateProfileRequest request) {
