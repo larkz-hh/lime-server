@@ -206,6 +206,58 @@ Access Token 过期后，用 Refresh Token 换取新的双 Token。
 
 ---
 
+### 获取指定用户公开资料
+
+`GET /api/user/{userId}`
+
+**需要登录**：是
+
+**Path 参数**
+
+| 参数   | 类型   | 说明    |
+|--------|--------|---------|
+| userId | number | 用户 ID |
+
+**请求体**：无
+
+**响应**
+
+```json
+{
+  "code": 200,
+  "message": "操作成功",
+  "data": {
+    "id": 7,
+    "nickname": "taffy",
+    "handle": "user_xxxxxxxx",
+    "bio": "这是我的简介",
+    "avatar": "http://localhost:9000/lime-bucket/avatars/uuid.jpg",
+    "backgroundImage": "http://localhost:9000/lime-bucket/backgrounds/uuid.jpg",
+    "gender": 1,
+    "birthday": "2000-01-01",
+    "region": "上海",
+    "role": "USER"
+  }
+}
+```
+
+> 不返回 `email` 字段（隐私保护）。
+
+| 字段            | 类型   | 说明                                        |
+|-----------------|--------|---------------------------------------------|
+| id              | number | 用户 ID                                     |
+| nickname        | string | 昵称                                        |
+| handle          | string | 唯一标识符                                   |
+| bio             | string | 个人简介，可为 null                          |
+| avatar          | string | 头像图片 URL，可为 null                      |
+| backgroundImage | string | 个人主页背景图 URL，可为 null                |
+| gender          | number | 性别：0=未设置，1=男，2=女，可为 null        |
+| birthday        | string | 生日，格式 `yyyy-MM-dd`，可为 null           |
+| region          | string | 地区，可为 null                              |
+| role            | string | 角色，当前固定为 `USER`                      |
+
+---
+
 ### 获取当前用户信息
 
 `GET /api/user/me`
