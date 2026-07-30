@@ -97,6 +97,26 @@ public class NoteController {
         return Result.success();
     }
 
+    /// 获取指定用户点赞过的笔记列表，Cursor 分页；若对方开启点赞隐私则返回业务错误
+    @GetMapping("/user/{userId}/likes")
+    public Result<CursorPage<NoteFeedResponse>> getLikedNotes(
+            @PathVariable Long userId,
+            @RequestParam(required = false) Long cursor,
+            @RequestParam(defaultValue = "10") int size) {
+        size = Math.min(size, 50);
+        return Result.success(noteService.getLikedNotes(userId, cursor, size, currentUserId()));
+    }
+
+    /// 获取指定用户收藏的笔记列表，Cursor 分页；若对方开启收藏隐私则返回业务错误
+    @GetMapping("/user/{userId}/favorites")
+    public Result<CursorPage<NoteFeedResponse>> getFavoritedNotes(
+            @PathVariable Long userId,
+            @RequestParam(required = false) Long cursor,
+            @RequestParam(defaultValue = "10") int size) {
+        size = Math.min(size, 50);
+        return Result.success(noteService.getFavoritedNotes(userId, cursor, size, currentUserId()));
+    }
+
     private Long currentUserId() {
         return (Long) SecurityContextHolder.getContext().getAuthentication().getPrincipal();
     }
