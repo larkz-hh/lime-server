@@ -38,6 +38,10 @@ public class User {
 
     private String role;
 
+    private Boolean likePrivate;
+
+    private Boolean favPrivate;
+
     private Integer status;
 
     @TableLogic
