@@ -2,6 +2,7 @@ package com.lzz.lime_server.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
+import com.lzz.lime_server.common.ResultCode;
 import com.lzz.lime_server.common.exception.BusinessException;
 import com.lzz.lime_server.dto.request.PublishNoteRequest;
 import com.lzz.lime_server.dto.response.CursorPage;
@@ -402,6 +403,79 @@ public class NoteServiceImpl implements NoteService {
     }
 
 
+
+    /**
+     * 获取指定用户点赞过的笔记列表，游标分页。
+     * <p>若目标用户已开启点赞隐私且当前用户非本人，抛出业务异常。</p>
+     */
+    @Override
+    public CursorPage<NoteFeedResponse> getLikedNotes(Long targetUserId, Long cursor, int size, Long currentUserId) {
+        if (!targetUserId.equals(currentUserId)) {
+            User targetUser = userMapper.selectById(targetUserId);
+            if (targetUser == null) throw new BusinessException(ResultCode.NOT_FOUND);
+            if (Boolean.TRUE.equals(targetUser.getLikePrivate())) {
+                throw new BusinessException("该用户已开启点赞列表隐私");
+            }
+        }
+        return queryInteractionNotes(
+                noteMapper.selectLikedNotes(targetUserId, cursor, size + 1),
+                size, currentUserId);
+    }
+
+    /**
+     * 获取指定用户收藏的笔记列表，游标分页。
+     * <p>若目标用户已开启收藏隐私且当前用户非本人，抛出业务异常。</p>
+     */
+    @Override
+    public CursorPage<NoteFeedResponse> getFavoritedNotes(Long targetUserId, Long cursor, int size, Long currentUserId) {
+        if (!targetUserId.equals(currentUserId)) {
+            User targetUser = userMapper.selectById(targetUserId);
+            if (targetUser == null) throw new BusinessException(ResultCode.NOT_FOUND);
+            if (Boolean.TRUE.equals(targetUser.getFavPrivate())) {
+                throw new BusinessException("该用户已开启收藏列表隐私");
+            }
+        }
+        return queryInteractionNotes(
+                noteMapper.selectFavoritedNotes(targetUserId, cursor, size + 1),
+                size, currentUserId);
+    }
+
+    /**
+     * 将点赞/收藏查询结果转换为 CursorPage，并批量标记当前用户的点赞状态。
+     * cursor 基于 note_like/note_fav 的 id（即操作时间顺序），而非 note.id。
+     */
+    private CursorPage<NoteFeedResponse> queryInteractionNotes(
+            List<NoteMapper.NoteFeedRow> rows, int size, Long currentUserId) {
+        boolean hasMore = rows.size() > size;
+        if (hasMore) rows = rows.subList(0, size);
+
+        List<NoteFeedResponse> items = rows.stream().map(row -> {
+            NoteFeedResponse item = new NoteFeedResponse();
+            item.setId(row.getId());
+            item.setTitle(row.getTitle());
+            item.setCoverImage(row.getCoverImage());
+            item.setLikeCount(row.getLikeCount());
+            NoteFeedResponse.AuthorBrief author = new NoteFeedResponse.AuthorBrief();
+            author.setId(row.getAuthorId());
+            author.setNickname(row.getAuthorNickname());
+            author.setAvatar(row.getAuthorAvatar());
+            item.setAuthor(author);
+            return item;
+        }).toList();
+
+        if (!items.isEmpty()) {
+            List<Long> noteIds = items.stream().map(NoteFeedResponse::getId).toList();
+            Set<Long> likedNoteIds = noteLikeMapper.selectList(
+                            new LambdaQueryWrapper<NoteLike>()
+                                    .eq(NoteLike::getUserId, currentUserId)
+                                    .in(NoteLike::getNoteId, noteIds))
+                    .stream().map(NoteLike::getNoteId).collect(Collectors.toSet());
+            items.forEach(item -> item.setLiked(likedNoteIds.contains(item.getId())));
+        }
+
+        Long nextCursor = hasMore ? rows.getLast().getCursorId() : null;
+        return CursorPage.of(items, nextCursor, hasMore);
+    }
 
     /** 校验笔记是否存在且已发布。*/
     private void ensureNoteExists(Long noteId) {

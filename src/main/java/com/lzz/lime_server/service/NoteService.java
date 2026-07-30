@@ -22,4 +22,8 @@ public interface NoteService {
     void favoriteNote(Long noteId, Long userId);
 
     void unfavoriteNote(Long noteId, Long userId);
+
+    CursorPage<NoteFeedResponse> getLikedNotes(Long targetUserId, Long cursor, int size, Long currentUserId);
+
+    CursorPage<NoteFeedResponse> getFavoritedNotes(Long targetUserId, Long cursor, int size, Long currentUserId);
 }
