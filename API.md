@@ -438,6 +438,81 @@ Access Token 过期后，用 Refresh Token 换取新的双 Token。
 
 ---
 
+### 获取用户点赞笔记列表
+
+`GET /api/notes/user/{userId}/likes`
+
+**需要登录**：是
+
+若目标用户已开启点赞列表隐私，非本人访问时返回业务错误（code 500，message "该用户已开启点赞列表隐私"）。
+
+**Path 参数**
+
+| 参数   | 类型   | 说明    |
+|--------|--------|---------|
+| userId | number | 用户 ID |
+
+**Query 参数**
+
+| 参数   | 类型   | 必填 | 说明                                     |
+|--------|--------|------|------------------------------------------|
+| cursor | number | 否   | 上一页游标（`nextCursor` 字段值），首次不传 |
+| size   | number | 否   | 每页条数，默认 10，最大 50                |
+
+**响应**：结构同「获取信息流」，`nextCursor` 基于点赞记录 ID（按点赞时间倒序）。
+
+```json
+{
+  "code": 200,
+  "message": "操作成功",
+  "data": {
+    "items": [
+      {
+        "id": 42,
+        "title": "关注科协喵",
+        "coverImage": "http://minio-host/lime/notes/uuid1.jpg",
+        "likeCount": 128,
+        "liked": true,
+        "author": {
+          "id": 7,
+          "nickname": "taffy",
+          "avatar": "http://minio-host/lime/avatars/uuid.jpg"
+        }
+      }
+    ],
+    "nextCursor": 15,
+    "hasMore": true
+  }
+}
+```
+
+---
+
+### 获取用户收藏笔记列表
+
+`GET /api/notes/user/{userId}/favorites`
+
+**需要登录**：是
+
+若目标用户已开启收藏列表隐私，非本人访问时返回业务错误（code 500，message "该用户已开启收藏列表隐私"）。
+
+**Path 参数**
+
+| 参数   | 类型   | 说明    |
+|--------|--------|---------|
+| userId | number | 用户 ID |
+
+**Query 参数**
+
+| 参数   | 类型   | 必填 | 说明                                     |
+|--------|--------|------|------------------------------------------|
+| cursor | number | 否   | 上一页游标（`nextCursor` 字段值），首次不传 |
+| size   | number | 否   | 每页条数，默认 10，最大 50                |
+
+**响应**：结构同「获取用户点赞笔记列表」，`nextCursor` 基于收藏记录 ID（按收藏时间倒序）。
+
+---
+
 ### 获取用户笔记列表
 
 `GET /api/notes/user/{userId}`

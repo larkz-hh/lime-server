@@ -50,6 +50,8 @@ CREATE TABLE IF NOT EXISTS `user` (
     `birthday`    DATE,
     `region`      VARCHAR(50),
     `role`        VARCHAR(20)  NOT NULL DEFAULT 'USER',
+    `like_private` TINYINT     NOT NULL DEFAULT 0 COMMENT '点赞列表是否私密：0=公开，1=私密',
+    `fav_private`  TINYINT     NOT NULL DEFAULT 0 COMMENT '收藏列表是否私密：0=公开，1=私密',
     `status`      TINYINT      NOT NULL DEFAULT 0,
     `deleted`     TINYINT      NOT NULL DEFAULT 0,
     `create_time` DATETIME     DEFAULT CURRENT_TIMESTAMP,
