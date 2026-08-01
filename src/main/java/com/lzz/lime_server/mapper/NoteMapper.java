@@ -87,6 +87,8 @@ public interface NoteMapper extends BaseMapper<Note> {
         private String authorAvatar;
         // 点赞/收藏列表查询时填充，作为游标使用；其他查询为 null
         private Long cursorId;
+        // 浏览历史查询时填充；其他查询为 null
+        private java.time.LocalDateTime viewTime;
     }
 
     @Select("""
@@ -157,6 +159,7 @@ public interface NoteMapper extends BaseMapper<Note> {
     @Select("""
             <script>
             SELECT CAST(UNIX_TIMESTAMP(nv.create_time) * 1000 AS UNSIGNED) AS cursor_id,
+                   nv.create_time AS view_time,
                    n.id, n.title, n.like_count,
                    ni.url AS cover_image,
                    u.id AS author_id, u.nickname AS author_nickname, u.avatar AS author_avatar
@@ -173,6 +176,7 @@ public interface NoteMapper extends BaseMapper<Note> {
             """)
     @Results(id = "viewedNotesResultMap", value = {
             @Result(property = "cursorId",       column = "cursor_id"),
+            @Result(property = "viewTime",       column = "view_time"),
             @Result(property = "id",             column = "id"),
             @Result(property = "title",          column = "title"),
             @Result(property = "likeCount",      column = "like_count"),

@@ -455,9 +455,38 @@ public class NoteServiceImpl implements NoteService {
      */
     @Override
     public CursorPage<NoteFeedResponse> getViewedNotes(Long userId, Long cursor, int size) {
-        return queryInteractionNotes(
-                noteMapper.selectViewedNotes(userId, cursor, size + 1),
-                size, userId);
+        List<NoteMapper.NoteFeedRow> rows = noteMapper.selectViewedNotes(userId, cursor, size + 1);
+
+        boolean hasMore = rows.size() > size;
+        if (hasMore) rows = rows.subList(0, size);
+
+        List<NoteFeedResponse> items = rows.stream().map(row -> {
+            NoteFeedResponse item = new NoteFeedResponse();
+            item.setId(row.getId());
+            item.setTitle(row.getTitle());
+            item.setCoverImage(row.getCoverImage());
+            item.setLikeCount(row.getLikeCount());
+            item.setViewTime(row.getViewTime());
+            NoteFeedResponse.AuthorBrief author = new NoteFeedResponse.AuthorBrief();
+            author.setId(row.getAuthorId());
+            author.setNickname(row.getAuthorNickname());
+            author.setAvatar(row.getAuthorAvatar());
+            item.setAuthor(author);
+            return item;
+        }).toList();
+
+        if (!items.isEmpty()) {
+            List<Long> noteIds = items.stream().map(NoteFeedResponse::getId).toList();
+            Set<Long> likedNoteIds = noteLikeMapper.selectList(
+                            new LambdaQueryWrapper<NoteLike>()
+                                    .eq(NoteLike::getUserId, userId)
+                                    .in(NoteLike::getNoteId, noteIds))
+                    .stream().map(NoteLike::getNoteId).collect(Collectors.toSet());
+            items.forEach(item -> item.setLiked(likedNoteIds.contains(item.getId())));
+        }
+
+        Long nextCursor = hasMore ? rows.getLast().getCursorId() : null;
+        return CursorPage.of(items, nextCursor, hasMore);
     }
 
     /** 从浏览历史中批量删除指定笔记记录（记录不存在时幂等返回）。*/

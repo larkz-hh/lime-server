@@ -3,6 +3,8 @@ package com.lzz.lime_server.dto.response;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import lombok.Data;
 
+import java.time.LocalDateTime;
+
 @Data
 public class NoteFeedResponse {
 
@@ -17,6 +19,9 @@ public class NoteFeedResponse {
     // 浏览量：仅本人查看自己的笔记列表时返回，其他场景为 null 不输出
     @JsonInclude(JsonInclude.Include.NON_NULL)
     private Integer viewCount;
+    // 浏览时间：仅浏览历史接口返回，其他场景为 null 不输出
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    private LocalDateTime viewTime;
     private AuthorBrief author;
 
     @Data
