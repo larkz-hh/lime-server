@@ -558,6 +558,7 @@ Access Token 过期后，用 Refresh Token 换取新的双 Token。
 | 字段        | 类型    | 说明                                                       |
 |-------------|---------|-------------------------------------------------------------|
 | items       | array   | 浏览过的笔记卡片列表，结构同「获取信息流」                  |
+| items[].viewTime | string | 最近浏览时间，格式 `yyyy-MM-ddTHH:mm:ss`             |
 | nextCursor  | number  | 下一页游标（最后一条记录的浏览时间 epoch 毫秒），无更多数据时为 null |
 | hasMore     | boolean | 是否还有下一页                                             |
 
