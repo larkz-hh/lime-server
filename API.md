@@ -513,6 +513,56 @@ Access Token 过期后，用 Refresh Token 换取新的双 Token。
 
 ---
 
+### 获取当前用户浏览历史
+
+`GET /api/notes/history`
+
+**需要登录**：是
+
+返回当前登录用户自己的浏览历史，按最近浏览时间倒序排列，Cursor 分页。每条笔记只出现一次，重复浏览同一笔记时会将其更新至历史顶部。
+
+**Query 参数**
+
+| 参数   | 类型   | 必填 | 说明                                               |
+|--------|--------|------|----------------------------------------------------|
+| cursor | number | 否   | 上一页最后一条记录的浏览时间（epoch 毫秒），首次不传 |
+| size   | number | 否   | 每页条数，默认 10，最大 50                          |
+
+**响应**
+
+```json
+{
+  "code": 200,
+  "message": "操作成功",
+  "data": {
+    "items": [
+      {
+        "id": 42,
+        "title": "关注科协喵",
+        "coverImage": "http://minio-host/lime/notes/uuid1.jpg",
+        "likeCount": 18,
+        "liked": false,
+        "author": {
+          "id": 7,
+          "nickname": "taffy",
+          "avatar": "http://minio-host/lime/avatars/uuid.jpg"
+        }
+      }
+    ],
+    "nextCursor": 1706745600123,
+    "hasMore": true
+  }
+}
+```
+
+| 字段        | 类型    | 说明                                                       |
+|-------------|---------|-------------------------------------------------------------|
+| items       | array   | 浏览过的笔记卡片列表，结构同「获取信息流」                  |
+| nextCursor  | number  | 下一页游标（最后一条记录的浏览时间 epoch 毫秒），无更多数据时为 null |
+| hasMore     | boolean | 是否还有下一页                                             |
+
+---
+
 ### 获取用户笔记列表
 
 `GET /api/notes/user/{userId}`
@@ -567,6 +617,7 @@ Access Token 过期后，用 Refresh Token 换取新的双 Token。
 |--------------------|---------|----------------------------------------------------------|
 | items[].status     | number  | 笔记状态：`0`=草稿，`1`=已发布                           |
 | items[].liked      | boolean | 当前用户是否已点赞该笔记                                  |
+| items[].viewCount  | number  | 浏览量；**仅本人查看自己的列表时返回**，非本人为 null 不输出 |
 | nextCursor         | number  | 下一页游标，无更多数据时为 null                           |
 | hasMore            | boolean | 是否还有更多数据                                          |
 
