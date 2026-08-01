@@ -117,6 +117,15 @@ public class NoteController {
         return Result.success(noteService.getFavoritedNotes(userId, cursor, size, currentUserId()));
     }
 
+    /// 获取当前用户浏览历史，Cursor 分页（cursor 为 epoch 毫秒）
+    @GetMapping("/history")
+    public Result<CursorPage<NoteFeedResponse>> getViewHistory(
+            @RequestParam(required = false) Long cursor,
+            @RequestParam(defaultValue = "10") int size) {
+        size = Math.min(size, 50);
+        return Result.success(noteService.getViewedNotes(currentUserId(), cursor, size));
+    }
+
     private Long currentUserId() {
         return (Long) SecurityContextHolder.getContext().getAuthentication().getPrincipal();
     }
