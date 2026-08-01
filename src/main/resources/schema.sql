@@ -36,6 +36,14 @@ CREATE TABLE IF NOT EXISTS `note_fav` (
     UNIQUE KEY `uk_fav_note_user` (`note_id`, `user_id`)
 );
 
+CREATE TABLE IF NOT EXISTS `note_view` (
+    `id`          BIGINT       AUTO_INCREMENT PRIMARY KEY,
+    `user_id`     BIGINT       NOT NULL,
+    `note_id`     BIGINT       NOT NULL,
+    `create_time` DATETIME(3)  DEFAULT CURRENT_TIMESTAMP(3),
+    UNIQUE KEY `uk_view_user_note` (`user_id`, `note_id`)
+);
+
 CREATE TABLE IF NOT EXISTS `user` (
     `id`          BIGINT       AUTO_INCREMENT PRIMARY KEY,
     `email`       VARCHAR(100) NOT NULL UNIQUE,

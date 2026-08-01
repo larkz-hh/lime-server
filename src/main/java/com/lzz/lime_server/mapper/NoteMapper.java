@@ -42,7 +42,7 @@ public interface NoteMapper extends BaseMapper<Note> {
 
     @Select("""
             <script>
-            SELECT n.id, n.title, n.like_count, n.status,
+            SELECT n.id, n.title, n.like_count, n.status, n.view_count,
                    ni.url AS cover_image,
                    u.id AS author_id, u.nickname AS author_nickname, u.avatar AS author_avatar
             FROM note n
@@ -60,6 +60,7 @@ public interface NoteMapper extends BaseMapper<Note> {
             @Result(property = "title",          column = "title"),
             @Result(property = "likeCount",      column = "like_count"),
             @Result(property = "status",         column = "status"),
+            @Result(property = "viewCount",      column = "view_count"),
             @Result(property = "coverImage",     column = "cover_image"),
             @Result(property = "authorId",       column = "author_id"),
             @Result(property = "authorNickname", column = "author_nickname"),
@@ -78,12 +79,16 @@ public interface NoteMapper extends BaseMapper<Note> {
         private String title;
         private Integer likeCount;
         private Integer status;
+        // selectUserNotes 时填充，其他查询为 null
+        private Integer viewCount;
         private String coverImage;
         private Long authorId;
         private String authorNickname;
         private String authorAvatar;
         // 点赞/收藏列表查询时填充，作为游标使用；其他查询为 null
         private Long cursorId;
+        // 浏览历史查询时填充；其他查询为 null
+        private java.time.LocalDateTime viewTime;
     }
 
     @Select("""
@@ -145,4 +150,42 @@ public interface NoteMapper extends BaseMapper<Note> {
     List<NoteFeedRow> selectFavoritedNotes(@Param("userId") Long userId,
                                            @Param("cursor") Long cursor,
                                            @Param("size") int size);
+
+    /**
+     * 查询当前用户的浏览历史，按浏览时间倒序排列。
+     * cursor 为上一页最后一条记录的浏览时间（epoch 毫秒），
+     * cursorId 字段返回当前行浏览时间的 epoch 毫秒值，供下一次请求使用。
+     */
+    @Select("""
+            <script>
+            SELECT CAST(UNIX_TIMESTAMP(nv.create_time) * 1000 AS UNSIGNED) AS cursor_id,
+                   nv.create_time AS view_time,
+                   n.id, n.title, n.like_count,
+                   ni.url AS cover_image,
+                   u.id AS author_id, u.nickname AS author_nickname, u.avatar AS author_avatar
+            FROM note_view nv
+            JOIN note n ON n.id = nv.note_id AND n.deleted = 0 AND n.status = 1
+            LEFT JOIN note_image ni ON ni.note_id = n.id
+                AND ni.sort_order = (SELECT MIN(sort_order) FROM note_image WHERE note_id = n.id)
+            LEFT JOIN `user` u ON u.id = n.user_id
+            WHERE nv.user_id = #{userId}
+            <if test="cursor != null">AND nv.create_time &lt; FROM_UNIXTIME(#{cursor} / 1000.0)</if>
+            ORDER BY nv.create_time DESC
+            LIMIT #{size}
+            </script>
+            """)
+    @Results(id = "viewedNotesResultMap", value = {
+            @Result(property = "cursorId",       column = "cursor_id"),
+            @Result(property = "viewTime",       column = "view_time"),
+            @Result(property = "id",             column = "id"),
+            @Result(property = "title",          column = "title"),
+            @Result(property = "likeCount",      column = "like_count"),
+            @Result(property = "coverImage",     column = "cover_image"),
+            @Result(property = "authorId",       column = "author_id"),
+            @Result(property = "authorNickname", column = "author_nickname"),
+            @Result(property = "authorAvatar",   column = "author_avatar")
+    })
+    List<NoteFeedRow> selectViewedNotes(@Param("userId") Long userId,
+                                        @Param("cursor") Long cursor,
+                                        @Param("size") int size);
 }

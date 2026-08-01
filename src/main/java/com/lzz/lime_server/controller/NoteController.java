@@ -15,6 +15,7 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.util.List;
 import java.util.Map;
 
 @RestController
@@ -115,6 +116,31 @@ public class NoteController {
             @RequestParam(defaultValue = "10") int size) {
         size = Math.min(size, 50);
         return Result.success(noteService.getFavoritedNotes(userId, cursor, size, currentUserId()));
+    }
+
+    /// 获取当前用户浏览历史，Cursor 分页（cursor 为 epoch 毫秒）
+    @GetMapping("/history")
+    public Result<CursorPage<NoteFeedResponse>> getViewHistory(
+            @RequestParam(required = false) Long cursor,
+            @RequestParam(defaultValue = "10") int size) {
+        size = Math.min(size, 50);
+        return Result.success(noteService.getViewedNotes(currentUserId(), cursor, size));
+    }
+
+    /// 批量删除浏览历史中的指定笔记记录
+    @DeleteMapping("/history")
+    public Result<Void> deleteViewRecords(@RequestBody DeleteHistoryRequest request) {
+        noteService.deleteViewRecords(currentUserId(), request.noteIds());
+        return Result.success();
+    }
+
+    record DeleteHistoryRequest(List<Long> noteIds) {}
+
+    /// 清空当前用户全部浏览历史
+    @DeleteMapping("/history/all")
+    public Result<Void> clearViewHistory() {
+        noteService.clearViewHistory(currentUserId());
+        return Result.success();
     }
 
     private Long currentUserId() {

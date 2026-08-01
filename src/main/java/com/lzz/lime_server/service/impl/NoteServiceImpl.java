@@ -35,6 +35,7 @@ public class NoteServiceImpl implements NoteService {
     private final NoteImageMapper noteImageMapper;
     private final NoteLikeMapper noteLikeMapper;
     private final NoteFavMapper noteFavMapper;
+    private final NoteViewMapper noteViewMapper;
     private final UserMapper userMapper;
     private final StringRedisTemplate redisTemplate;
     private static final String LIKE_COUNT_PREFIX = "note:like:";
@@ -110,6 +111,10 @@ public class NoteServiceImpl implements NoteService {
             item.setCoverImage(row.getCoverImage());
             item.setLikeCount(row.getLikeCount());
             item.setStatus(row.getStatus());
+            // 浏览量仅本人可见，非本人保持 null（序列化时不输出）
+            if (targetUserId.equals(currentUserId)) {
+                item.setViewCount(row.getViewCount());
+            }
 
             NoteFeedResponse.AuthorBrief author = new NoteFeedResponse.AuthorBrief();
             author.setId(row.getAuthorId());
@@ -274,6 +279,9 @@ public class NoteServiceImpl implements NoteService {
 
         // 每次详情访问累计浏览量
         noteMapper.incrementViewCount(noteId);
+
+        // 记录浏览历史,重复浏览同一笔记则更新时间，使其重新出现在历史顶部
+        noteViewMapper.upsertView(currentUserId, noteId);
 
         return buildDetailResponse(note, images, author, likeCount, favCount, liked, favorited);
     }
@@ -441,7 +449,64 @@ public class NoteServiceImpl implements NoteService {
     }
 
     /**
-     * 将点赞/收藏查询结果转换为 CursorPage，并批量标记当前用户的点赞状态。
+     * 获取当前用户的浏览历史，游标分页。
+     * cursor 为上一页最后一条的浏览时间，首次传 null。
+     * 每条笔记在历史中唯一，重复浏览时更新至顶部。
+     */
+    @Override
+    public CursorPage<NoteFeedResponse> getViewedNotes(Long userId, Long cursor, int size) {
+        List<NoteMapper.NoteFeedRow> rows = noteMapper.selectViewedNotes(userId, cursor, size + 1);
+
+        boolean hasMore = rows.size() > size;
+        if (hasMore) rows = rows.subList(0, size);
+
+        List<NoteFeedResponse> items = rows.stream().map(row -> {
+            NoteFeedResponse item = new NoteFeedResponse();
+            item.setId(row.getId());
+            item.setTitle(row.getTitle());
+            item.setCoverImage(row.getCoverImage());
+            item.setLikeCount(row.getLikeCount());
+            item.setViewTime(row.getViewTime());
+            NoteFeedResponse.AuthorBrief author = new NoteFeedResponse.AuthorBrief();
+            author.setId(row.getAuthorId());
+            author.setNickname(row.getAuthorNickname());
+            author.setAvatar(row.getAuthorAvatar());
+            item.setAuthor(author);
+            return item;
+        }).toList();
+
+        if (!items.isEmpty()) {
+            List<Long> noteIds = items.stream().map(NoteFeedResponse::getId).toList();
+            Set<Long> likedNoteIds = noteLikeMapper.selectList(
+                            new LambdaQueryWrapper<NoteLike>()
+                                    .eq(NoteLike::getUserId, userId)
+                                    .in(NoteLike::getNoteId, noteIds))
+                    .stream().map(NoteLike::getNoteId).collect(Collectors.toSet());
+            items.forEach(item -> item.setLiked(likedNoteIds.contains(item.getId())));
+        }
+
+        Long nextCursor = hasMore ? rows.getLast().getCursorId() : null;
+        return CursorPage.of(items, nextCursor, hasMore);
+    }
+
+    /** 从浏览历史中批量删除指定笔记记录（记录不存在时幂等返回）。*/
+    @Override
+    public void deleteViewRecords(Long userId, List<Long> noteIds) {
+        if (noteIds == null || noteIds.isEmpty()) return;
+        noteViewMapper.delete(new LambdaQueryWrapper<NoteView>()
+                .eq(NoteView::getUserId, userId)
+                .in(NoteView::getNoteId, noteIds));
+    }
+
+    /** 清空当前用户的全部浏览历史。*/
+    @Override
+    public void clearViewHistory(Long userId) {
+        noteViewMapper.delete(new LambdaQueryWrapper<NoteView>()
+                .eq(NoteView::getUserId, userId));
+    }
+
+    /**
+     * 将点赞/收藏/浏览历史查询结果转换为 CursorPage，并批量标记当前用户的点赞状态。
      * cursor 基于 note_like/note_fav 的 id（即操作时间顺序），而非 note.id。
      */
     private CursorPage<NoteFeedResponse> queryInteractionNotes(
