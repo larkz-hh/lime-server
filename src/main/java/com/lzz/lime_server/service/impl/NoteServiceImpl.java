@@ -111,6 +111,10 @@ public class NoteServiceImpl implements NoteService {
             item.setCoverImage(row.getCoverImage());
             item.setLikeCount(row.getLikeCount());
             item.setStatus(row.getStatus());
+            // 浏览量仅本人可见，非本人保持 null（序列化时不输出）
+            if (targetUserId.equals(currentUserId)) {
+                item.setViewCount(row.getViewCount());
+            }
 
             NoteFeedResponse.AuthorBrief author = new NoteFeedResponse.AuthorBrief();
             author.setId(row.getAuthorId());

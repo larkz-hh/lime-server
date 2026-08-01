@@ -42,7 +42,7 @@ public interface NoteMapper extends BaseMapper<Note> {
 
     @Select("""
             <script>
-            SELECT n.id, n.title, n.like_count, n.status,
+            SELECT n.id, n.title, n.like_count, n.status, n.view_count,
                    ni.url AS cover_image,
                    u.id AS author_id, u.nickname AS author_nickname, u.avatar AS author_avatar
             FROM note n
@@ -60,6 +60,7 @@ public interface NoteMapper extends BaseMapper<Note> {
             @Result(property = "title",          column = "title"),
             @Result(property = "likeCount",      column = "like_count"),
             @Result(property = "status",         column = "status"),
+            @Result(property = "viewCount",      column = "view_count"),
             @Result(property = "coverImage",     column = "cover_image"),
             @Result(property = "authorId",       column = "author_id"),
             @Result(property = "authorNickname", column = "author_nickname"),
@@ -78,6 +79,8 @@ public interface NoteMapper extends BaseMapper<Note> {
         private String title;
         private Integer likeCount;
         private Integer status;
+        // selectUserNotes 时填充，其他查询为 null
+        private Integer viewCount;
         private String coverImage;
         private Long authorId;
         private String authorNickname;
