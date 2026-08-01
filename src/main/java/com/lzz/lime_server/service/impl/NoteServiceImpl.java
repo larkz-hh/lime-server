@@ -460,6 +460,22 @@ public class NoteServiceImpl implements NoteService {
                 size, userId);
     }
 
+    /** 从浏览历史中批量删除指定笔记记录（记录不存在时幂等返回）。*/
+    @Override
+    public void deleteViewRecords(Long userId, List<Long> noteIds) {
+        if (noteIds == null || noteIds.isEmpty()) return;
+        noteViewMapper.delete(new LambdaQueryWrapper<NoteView>()
+                .eq(NoteView::getUserId, userId)
+                .in(NoteView::getNoteId, noteIds));
+    }
+
+    /** 清空当前用户的全部浏览历史。*/
+    @Override
+    public void clearViewHistory(Long userId) {
+        noteViewMapper.delete(new LambdaQueryWrapper<NoteView>()
+                .eq(NoteView::getUserId, userId));
+    }
+
     /**
      * 将点赞/收藏/浏览历史查询结果转换为 CursorPage，并批量标记当前用户的点赞状态。
      * cursor 基于 note_like/note_fav 的 id（即操作时间顺序），而非 note.id。

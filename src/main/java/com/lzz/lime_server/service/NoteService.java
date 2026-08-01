@@ -6,6 +6,8 @@ import com.lzz.lime_server.dto.response.NoteDetailResponse;
 import com.lzz.lime_server.dto.response.NoteFeedResponse;
 import com.lzz.lime_server.dto.response.NoteResponse;
 
+import java.util.List;
+
 public interface NoteService {
     NoteResponse publishNote(Long userId, PublishNoteRequest request);
 
@@ -28,4 +30,8 @@ public interface NoteService {
     CursorPage<NoteFeedResponse> getFavoritedNotes(Long targetUserId, Long cursor, int size, Long currentUserId);
 
     CursorPage<NoteFeedResponse> getViewedNotes(Long userId, Long cursor, int size);
+
+    void deleteViewRecords(Long userId, List<Long> noteIds);
+
+    void clearViewHistory(Long userId);
 }
