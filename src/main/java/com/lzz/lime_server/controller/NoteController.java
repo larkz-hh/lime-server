@@ -129,10 +129,12 @@ public class NoteController {
 
     /// 批量删除浏览历史中的指定笔记记录
     @DeleteMapping("/history")
-    public Result<Void> deleteViewRecords(@RequestBody List<Long> noteIds) {
-        noteService.deleteViewRecords(currentUserId(), noteIds);
+    public Result<Void> deleteViewRecords(@RequestBody DeleteHistoryRequest request) {
+        noteService.deleteViewRecords(currentUserId(), request.noteIds());
         return Result.success();
     }
+
+    record DeleteHistoryRequest(List<Long> noteIds) {}
 
     /// 清空当前用户全部浏览历史
     @DeleteMapping("/history/all")
