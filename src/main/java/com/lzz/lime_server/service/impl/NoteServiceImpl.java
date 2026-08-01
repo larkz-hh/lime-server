@@ -35,6 +35,7 @@ public class NoteServiceImpl implements NoteService {
     private final NoteImageMapper noteImageMapper;
     private final NoteLikeMapper noteLikeMapper;
     private final NoteFavMapper noteFavMapper;
+    private final NoteViewMapper noteViewMapper;
     private final UserMapper userMapper;
     private final StringRedisTemplate redisTemplate;
     private static final String LIKE_COUNT_PREFIX = "note:like:";
@@ -275,6 +276,9 @@ public class NoteServiceImpl implements NoteService {
         // 每次详情访问累计浏览量
         noteMapper.incrementViewCount(noteId);
 
+        // 记录浏览历史,重复浏览同一笔记则更新时间，使其重新出现在历史顶部
+        noteViewMapper.upsertView(currentUserId, noteId);
+
         return buildDetailResponse(note, images, author, likeCount, favCount, liked, favorited);
     }
 
@@ -441,7 +445,19 @@ public class NoteServiceImpl implements NoteService {
     }
 
     /**
-     * 将点赞/收藏查询结果转换为 CursorPage，并批量标记当前用户的点赞状态。
+     * 获取当前用户的浏览历史，游标分页。
+     * cursor 为上一页最后一条的浏览时间，首次传 null。
+     * 每条笔记在历史中唯一，重复浏览时更新至顶部。
+     */
+    @Override
+    public CursorPage<NoteFeedResponse> getViewedNotes(Long userId, Long cursor, int size) {
+        return queryInteractionNotes(
+                noteMapper.selectViewedNotes(userId, cursor, size + 1),
+                size, userId);
+    }
+
+    /**
+     * 将点赞/收藏/浏览历史查询结果转换为 CursorPage，并批量标记当前用户的点赞状态。
      * cursor 基于 note_like/note_fav 的 id（即操作时间顺序），而非 note.id。
      */
     private CursorPage<NoteFeedResponse> queryInteractionNotes(

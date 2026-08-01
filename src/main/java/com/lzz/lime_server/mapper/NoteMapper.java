@@ -145,4 +145,40 @@ public interface NoteMapper extends BaseMapper<Note> {
     List<NoteFeedRow> selectFavoritedNotes(@Param("userId") Long userId,
                                            @Param("cursor") Long cursor,
                                            @Param("size") int size);
+
+    /**
+     * 查询当前用户的浏览历史，按浏览时间倒序排列。
+     * cursor 为上一页最后一条记录的浏览时间（epoch 毫秒），
+     * cursorId 字段返回当前行浏览时间的 epoch 毫秒值，供下一次请求使用。
+     */
+    @Select("""
+            <script>
+            SELECT CAST(UNIX_TIMESTAMP(nv.create_time) * 1000 AS UNSIGNED) AS cursor_id,
+                   n.id, n.title, n.like_count,
+                   ni.url AS cover_image,
+                   u.id AS author_id, u.nickname AS author_nickname, u.avatar AS author_avatar
+            FROM note_view nv
+            JOIN note n ON n.id = nv.note_id AND n.deleted = 0 AND n.status = 1
+            LEFT JOIN note_image ni ON ni.note_id = n.id
+                AND ni.sort_order = (SELECT MIN(sort_order) FROM note_image WHERE note_id = n.id)
+            LEFT JOIN `user` u ON u.id = n.user_id
+            WHERE nv.user_id = #{userId}
+            <if test="cursor != null">AND nv.create_time &lt; FROM_UNIXTIME(#{cursor} / 1000.0)</if>
+            ORDER BY nv.create_time DESC
+            LIMIT #{size}
+            </script>
+            """)
+    @Results(id = "viewedNotesResultMap", value = {
+            @Result(property = "cursorId",       column = "cursor_id"),
+            @Result(property = "id",             column = "id"),
+            @Result(property = "title",          column = "title"),
+            @Result(property = "likeCount",      column = "like_count"),
+            @Result(property = "coverImage",     column = "cover_image"),
+            @Result(property = "authorId",       column = "author_id"),
+            @Result(property = "authorNickname", column = "author_nickname"),
+            @Result(property = "authorAvatar",   column = "author_avatar")
+    })
+    List<NoteFeedRow> selectViewedNotes(@Param("userId") Long userId,
+                                        @Param("cursor") Long cursor,
+                                        @Param("size") int size);
 }

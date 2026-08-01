@@ -26,4 +26,6 @@ public interface NoteService {
     CursorPage<NoteFeedResponse> getLikedNotes(Long targetUserId, Long cursor, int size, Long currentUserId);
 
     CursorPage<NoteFeedResponse> getFavoritedNotes(Long targetUserId, Long cursor, int size, Long currentUserId);
+
+    CursorPage<NoteFeedResponse> getViewedNotes(Long userId, Long cursor, int size);
 }
