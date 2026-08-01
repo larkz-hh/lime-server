@@ -563,6 +563,48 @@ Access Token 过期后，用 Refresh Token 换取新的双 Token。
 
 ---
 
+### 批量删除浏览历史记录
+
+`DELETE /api/notes/history`
+
+**需要登录**：是
+
+删除当前用户浏览历史中的一条或多条记录，记录不存在时幂等处理。
+
+**请求体**
+
+```json
+[42, 99, 108]
+```
+
+请求体为笔记 ID 数组。
+
+**响应**
+
+```json
+{ "code": 200, "message": "操作成功", "data": null }
+```
+
+---
+
+### 清空浏览历史
+
+`DELETE /api/notes/history/all`
+
+**需要登录**：是
+
+清空当前用户的全部浏览历史。
+
+**请求体**：无
+
+**响应**
+
+```json
+{ "code": 200, "message": "操作成功", "data": null }
+```
+
+---
+
 ### 获取用户笔记列表
 
 `GET /api/notes/user/{userId}`
