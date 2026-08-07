@@ -38,8 +38,13 @@ public class FileUploadServiceImpl implements FileUploadService {
     // 大小限制
     private static final long MAX_SIZE_5M = 5 * 1024 * 1024L;
     private static final long MAX_SIZE_10M = 10 * 1024 * 1024L;
+    private static final long MAX_SIZE_20M = 20 * 1024 * 1024L;
     private static final Set<String> ALLOWED_TYPES = Set.of(
             "image/jpeg", "image/png", "image/webp", "image/gif"
+    );
+    private static final Set<String> ALLOWED_VOICE_TYPES = Set.of(
+            "audio/mpeg", "audio/mp4", "audio/aac", "audio/wav",
+            "audio/ogg", "audio/x-m4a", "audio/mp3"
     );
 
     /**
@@ -55,7 +60,7 @@ public class FileUploadServiceImpl implements FileUploadService {
      */
     @Override
     public String uploadAvatar(MultipartFile file) {
-        return doUpload(file, "avatars", MAX_SIZE_5M, "头像");
+        return doUpload(file, "avatars", MAX_SIZE_5M, "头像", ALLOWED_TYPES);
     }
 
     /**
@@ -71,7 +76,7 @@ public class FileUploadServiceImpl implements FileUploadService {
      */
     @Override
     public String uploadBackground(MultipartFile file) {
-        return doUpload(file, "backgrounds", MAX_SIZE_5M, "背景图");
+        return doUpload(file, "backgrounds", MAX_SIZE_5M, "背景图", ALLOWED_TYPES);
     }
 
     /**
@@ -87,7 +92,19 @@ public class FileUploadServiceImpl implements FileUploadService {
      */
     @Override
     public String uploadNoteImage(MultipartFile file) {
-        return doUpload(file, "notes", MAX_SIZE_10M, "笔记图片");
+        return doUpload(file, "notes", MAX_SIZE_10M, "笔记图片", ALLOWED_TYPES);
+    }
+
+    /// 上传评论图片（与笔记图片限制相同）
+    @Override
+    public String uploadCommentImage(MultipartFile file) {
+        return doUpload(file, "comments/images", MAX_SIZE_10M, "评论图片", ALLOWED_TYPES);
+    }
+
+    /// 上传评论语音（mp3/m4a/aac/wav/ogg，限 20MB）
+    @Override
+    public String uploadCommentVoice(MultipartFile file) {
+        return doUpload(file, "comments/voices", MAX_SIZE_20M, "语音", ALLOWED_VOICE_TYPES);
     }
 
     /**
@@ -104,13 +121,13 @@ public class FileUploadServiceImpl implements FileUploadService {
      * @return 文件的公网访问 URL
      * @throws BusinessException 当文件为空、格式不合法、超过大小限制或上传失败时抛出
      */
-    private String doUpload(MultipartFile file, String folder, long maxSize, String label) {
+    private String doUpload(MultipartFile file, String folder, long maxSize, String label, Set<String> allowedTypes) {
         if (file == null || file.isEmpty()) {
             throw new BusinessException("文件不能为空");
         }
         String contentType = file.getContentType();
-        if (contentType == null || !ALLOWED_TYPES.contains(contentType)) {
-            throw new BusinessException("只支持 JPG、PNG、WebP、GIF 格式");
+        if (contentType == null || !allowedTypes.contains(contentType)) {
+            throw new BusinessException(label + "文件格式不支持");
         }
         if (file.getSize() > maxSize) {
             throw new BusinessException(label + "文件不能超过 " + (maxSize / 1024 / 1024) + "MB");
