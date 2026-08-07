@@ -784,6 +784,7 @@ Access Token 过期后，用 Refresh Token 换取新的双 Token。
     "likeCount": 128,
     "favCount": 36,
     "viewCount": 1024,
+    "commentCount": 42,
     "liked": false,
     "favorited": true,
     "author": {
@@ -797,11 +798,12 @@ Access Token 过期后，用 Refresh Token 换取新的双 Token。
 }
 ```
 
-| 字段       | 类型    | 说明                              |
-|------------|---------|-----------------------------------|
-| liked      | boolean | 当前用户是否已点赞                 |
-| favorited  | boolean | 当前用户是否已收藏                 |
-| viewCount  | number  | 浏览量（每次请求该接口自动 +1）    |
+| 字段         | 类型    | 说明                              |
+|--------------|---------|-----------------------------------|
+| liked        | boolean | 当前用户是否已点赞                 |
+| favorited    | boolean | 当前用户是否已收藏                 |
+| viewCount    | number  | 浏览量（每次请求该接口自动 +1）    |
+| commentCount | number  | 评论总数（含回复）                 |
 
 ---
 
@@ -893,3 +895,188 @@ Access Token 过期后，用 Refresh Token 换取新的双 Token。
   }
 }
 ```
+
+---
+
+## 评论接口
+
+> 以下接口均需登录（`Authorization: Bearer <accessToken>`）。
+
+---
+
+### 上传评论图片
+
+`POST /api/comments/images`
+
+先上传图片，获得 URL 后再发布评论。
+
+**请求体**：`multipart/form-data`，字段名 `file`，支持 JPG/PNG/WebP/GIF，最大 10MB。
+
+**响应**
+```json
+{ "code": 200, "message": "操作成功", "data": { "url": "https://..." } }
+```
+
+---
+
+### 上传评论语音
+
+`POST /api/comments/voices`
+
+先上传语音，获得 URL 后再发布评论（时长由客户端在发布时传入）。
+
+**请求体**：`multipart/form-data`，字段名 `file`，支持 mp3/m4a/aac/wav/ogg，最大 20MB。
+
+**响应**
+```json
+{ "code": 200, "message": "操作成功", "data": { "url": "https://..." } }
+```
+
+---
+
+### 发布评论
+
+`POST /api/notes/{noteId}/comments`
+
+**请求体**
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| content | string | 否 | 文字内容（含 emoji），与 images / voiceUrl 至少填一项 |
+| images | string[] | 否 | 图片 URL 列表，最多 9 张；与 voiceUrl 互斥 |
+| voiceUrl | string | 否 | 语音 URL；与 images 互斥 |
+| voiceDuration | int | 否* | 语音时长（秒），传 voiceUrl 时必填 |
+
+**响应**
+```json
+{
+  "code": 200,
+  "data": {
+    "id": 1,
+    "author": { "id": 10, "nickname": "用户A", "avatar": "https://..." },
+    "content": "好棒！",
+    "images": null,
+    "voiceUrl": null,
+    "voiceDuration": null,
+    "likeCount": 0,
+    "replyCount": 0,
+    "liked": false,
+    "isNoteAuthor": false,
+    "createTime": "2026-08-03T10:00:00",
+    "ipLocation": "湖南",
+    "topReplies": null
+  }
+}
+```
+
+---
+
+### 发布回复
+
+`POST /api/notes/{noteId}/comments/{commentId}/replies`
+
+**请求体**
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| content | string | 否 | 文字内容（与 images / voiceUrl 至少填一项） |
+| images | string[] | 否 | 图片 URL 列表，最多 9 张；与 voiceUrl 互斥 |
+| voiceUrl | string | 否 | 语音 URL；与 images 互斥 |
+| voiceDuration | int | 否* | 语音时长（秒），传 voiceUrl 时必填 |
+| replyToUserId | long | 否 | 被回复的用户 ID（回复某条回复时传，用于显示"回复@xxx"） |
+
+---
+
+### 获取笔记评论列表
+
+`GET /api/notes/{noteId}/comments`
+
+**Query 参数**
+
+| 参数 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| sort | string | hot | 排序：`hot`=热度降序，`time`=最新在前 |
+| cursor | string | - | 游标；热度排序格式 `{hotScore}:{id}`，时间排序格式 `{id}`；首次不传 |
+| size | int | 10 | 每页条数，最大 50 |
+
+**响应**（每条评论带前 1 条回复预览，展开全部回复需调用回复列表接口）
+```json
+{
+  "code": 200,
+  "data": {
+    "items": [
+      {
+        "id": 1,
+        "author": { "id": 10, "nickname": "用户A", "avatar": "https://..." },
+        "content": "很棒！",
+        "images": ["https://..."],
+        "voiceUrl": null,
+        "voiceDuration": null,
+        "likeCount": 42,
+        "replyCount": 8,
+        "liked": false,
+        "isNoteAuthor": true,
+        "createTime": "2026-08-03T10:00:00",
+        "topReplies": [
+          {
+            "id": 5,
+            "author": { "id": 20, "nickname": "用户B", "avatar": "https://..." },
+            "replyToUserId": 10,
+            "replyToNickname": "用户A",
+            "content": "谢谢",
+            "images": null,
+            "voiceUrl": null,
+            "voiceDuration": null,
+            "likeCount": 3,
+            "liked": false,
+            "isNoteAuthor": false,
+            "createTime": "2026-08-03T10:05:00",
+            "ipLocation": "广东"
+          }
+        ]
+      }
+    ],
+    "nextCursor": "42:1",
+    "hasMore": true
+  }
+}
+```
+
+---
+
+### 获取回复列表
+
+`GET /api/comments/{commentId}/replies`
+
+时间正序（最早在底部），用于"查看全部回复"。
+
+**Query 参数**
+
+| 参数 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| cursor | long | - | 游标（上一页最后一条回复的 id），首次不传 |
+| size | int | 20 | 每页条数，最大 50 |
+
+---
+
+### 点赞评论 / 回复
+
+`POST /api/comments/{commentId}/like`
+
+幂等，重复点赞直接返回成功。
+
+---
+
+### 取消点赞
+
+`DELETE /api/comments/{commentId}/like`
+
+幂等，未点赞时直接返回成功。
+
+---
+
+### 删除评论 / 回复
+
+`DELETE /api/comments/{commentId}`
+
+评论者本人或笔记作者均可删除。一级评论被删后，其下回复仍保留（逻辑删除）。
