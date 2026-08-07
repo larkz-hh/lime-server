@@ -39,6 +39,9 @@ public class NoteComment {
 
     private String ipAddress;
 
+    // IP 属地，发布时由 IpLocationService 解析后存入
+    private String ipLocation;
+
     @TableLogic
     private Integer deleted;
 

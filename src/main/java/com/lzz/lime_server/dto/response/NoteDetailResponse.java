@@ -16,6 +16,7 @@ public class NoteDetailResponse {
     private Integer likeCount;
     private Integer favCount;
     private Integer viewCount;
+    private Integer commentCount;
     private Boolean liked;
     private Boolean favorited;
     private AuthorInfo author;

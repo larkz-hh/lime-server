@@ -213,6 +213,7 @@ public class NoteServiceImpl implements NoteService {
         resp.setLikeCount(likeCount);
         resp.setFavCount(favCount);
         resp.setViewCount(note.getViewCount());
+        resp.setCommentCount(note.getCommentCount() != null ? note.getCommentCount() : 0);
         resp.setLiked(liked);
         resp.setFavorited(favorited);
         resp.setCreateTime(note.getCreateTime());

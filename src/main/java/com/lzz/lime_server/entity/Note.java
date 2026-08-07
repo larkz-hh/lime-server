@@ -27,12 +27,14 @@ public class Note {
 
     private Integer viewCount;
 
+    private Integer commentCount;
+
     @TableLogic
     private Integer deleted;
 
     @TableField(fill = FieldFill.INSERT)
     private LocalDateTime createTime;
 
-    @TableField(fill = FieldFill.INSERT_UPDATE)
+    @TableField(fill = FieldFill.INSERT)
     private LocalDateTime updateTime;
 }

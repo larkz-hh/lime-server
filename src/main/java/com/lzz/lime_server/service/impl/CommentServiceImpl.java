@@ -12,6 +12,7 @@ import com.lzz.lime_server.dto.response.ReplyResponse;
 import com.lzz.lime_server.entity.*;
 import com.lzz.lime_server.mapper.*;
 import com.lzz.lime_server.service.CommentService;
+import com.lzz.lime_server.service.IpLocationService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
@@ -33,6 +34,8 @@ public class CommentServiceImpl implements CommentService {
     private final NoteCommentImageMapper commentImageMapper;
     private final CommentLikeMapper      commentLikeMapper;
     private final NoteMapper             noteMapper;
+    private final UserMapper             userMapper;
+    private final IpLocationService      ipLocationService;
     private final StringRedisTemplate    redisTemplate;
     private final ObjectMapper           objectMapper;
 
@@ -61,13 +64,20 @@ public class CommentServiceImpl implements CommentService {
         validateContent(request);
 
         NoteComment comment = buildComment(noteId, userId, null, null, request, ipAddress);
+        comment.setIpLocation(ipLocationService.resolve(ipAddress));
         commentMapper.insert(comment);
         saveImages(comment.getId(), request.getImages());
+
+        noteMapper.update(null, new LambdaUpdateWrapper<Note>()
+                .eq(Note::getId, noteId)
+                .setSql("comment_count = comment_count + 1"));
 
         // 发布新评论后使该笔记的热度缓存失效
         evictHotCache(noteId);
 
-        return toCommentResponse(comment, note.getUserId(), Collections.emptyList(), false);
+        CommentResponse resp = toCommentResponse(comment, note.getUserId(), Collections.emptyList(), false);
+        fillCommentAuthor(resp, userId);
+        return resp;
     }
 
     /**
@@ -98,8 +108,13 @@ public class CommentServiceImpl implements CommentService {
 
         NoteComment reply = buildComment(noteId, userId, parentId,
                 request.getReplyToUserId(), request, ipAddress);
+        reply.setIpLocation(ipLocationService.resolve(ipAddress));
         commentMapper.insert(reply);
         saveImages(reply.getId(), request.getImages());
+
+        noteMapper.update(null, new LambdaUpdateWrapper<Note>()
+                .eq(Note::getId, noteId)
+                .setSql("comment_count = comment_count + 1"));
 
         // 更新父评论的 reply_count 和 hot_score
         commentMapper.update(null, new LambdaUpdateWrapper<NoteComment>()
@@ -108,7 +123,9 @@ public class CommentServiceImpl implements CommentService {
 
         evictHotCache(noteId);
 
-        return toReplyResponse(reply, note.getUserId(), false, null);
+        ReplyResponse resp = toReplyResponse(reply, note.getUserId(), false, null);
+        fillReplyAuthorFromUser(resp, userId);
+        return resp;
     }
 
 
@@ -316,6 +333,10 @@ public class CommentServiceImpl implements CommentService {
         // 逻辑删除（MyBatis-Plus @TableLogic 会自动处理 deleted 字段）
         commentMapper.deleteById(commentId);
 
+        noteMapper.update(null, new LambdaUpdateWrapper<Note>()
+                .eq(Note::getId, comment.getNoteId())
+                .setSql("comment_count = GREATEST(comment_count - 1, 0)"));
+
         // 若删除的是回复，则父评论 reply_count - 1，同步更新 hot_score
         if (comment.getParentId() != null) {
             commentMapper.update(null, new LambdaUpdateWrapper<NoteComment>()
@@ -455,6 +476,7 @@ public class CommentServiceImpl implements CommentService {
             resp.setLiked(likedIds.contains(row.getId()));
             resp.setNoteAuthor(noteAuthorId.equals(row.getUserId()));
             resp.setCreateTime(row.getCreateTime());
+            resp.setIpLocation(row.getIpLocation());
             resp.setImages(imagesMap.getOrDefault(row.getId(), null));
 
             CommentResponse.AuthorInfo author = new CommentResponse.AuthorInfo();
@@ -482,6 +504,7 @@ public class CommentServiceImpl implements CommentService {
                     reply.setLiked(replyLikedIds.contains(rr.getId()));
                     reply.setNoteAuthor(noteAuthorId.equals(rr.getUserId()));
                     reply.setCreateTime(rr.getCreateTime());
+                    reply.setIpLocation(rr.getIpLocation());
                     reply.setImages(replyImagesMap.getOrDefault(rr.getId(), null));
                     ReplyResponse.AuthorInfo ra = new ReplyResponse.AuthorInfo();
                     ra.setId(rr.getUserId());
@@ -523,6 +546,7 @@ public class CommentServiceImpl implements CommentService {
             resp.setLiked(false);
             resp.setNoteAuthor(noteAuthorId.equals(row.getUserId()));
             resp.setCreateTime(row.getCreateTime());
+            resp.setIpLocation(row.getIpLocation());
             resp.setImages(imagesMap.getOrDefault(row.getId(), null));
 
             CommentResponse.AuthorInfo author = new CommentResponse.AuthorInfo();
@@ -547,6 +571,7 @@ public class CommentServiceImpl implements CommentService {
                     reply.setLiked(false);
                     reply.setNoteAuthor(noteAuthorId.equals(rr.getUserId()));
                     reply.setCreateTime(rr.getCreateTime());
+                    reply.setIpLocation(rr.getIpLocation());
                     reply.setImages(replyImagesMap.getOrDefault(rr.getId(), null));
                     ReplyResponse.AuthorInfo ra = new ReplyResponse.AuthorInfo();
                     ra.setId(rr.getUserId());
@@ -606,6 +631,7 @@ public class CommentServiceImpl implements CommentService {
         resp.setLiked(liked);
         resp.setNoteAuthor(noteAuthorId.equals(comment.getUserId()));
         resp.setCreateTime(comment.getCreateTime());
+        resp.setIpLocation(comment.getIpLocation());
         resp.setTopReplies(topReplies.isEmpty() ? null : topReplies);
         return resp;
     }
@@ -626,6 +652,7 @@ public class CommentServiceImpl implements CommentService {
         resp.setLiked(liked);
         resp.setNoteAuthor(noteAuthorId.equals(reply.getUserId()));
         resp.setCreateTime(reply.getCreateTime());
+        resp.setIpLocation(reply.getIpLocation());
         return resp;
     }
 
@@ -644,6 +671,7 @@ public class CommentServiceImpl implements CommentService {
         c.setVoiceDuration(row.getVoiceDuration());
         c.setLikeCount(row.getLikeCount());
         c.setCreateTime(row.getCreateTime());
+        c.setIpLocation(row.getIpLocation());
         return c;
     }
 
@@ -655,6 +683,32 @@ public class CommentServiceImpl implements CommentService {
         author.setId(row.getUserId());
         author.setNickname(row.getAuthorNickname());
         author.setAvatar(row.getAuthorAvatar());
+        resp.setAuthor(author);
+    }
+
+    /**
+     * 从数据库查询用户信息并填充到评论响应的 author 字段。
+     */
+    private void fillCommentAuthor(CommentResponse resp, Long userId) {
+        User user = userMapper.selectById(userId);
+        if (user == null) return;
+        CommentResponse.AuthorInfo author = new CommentResponse.AuthorInfo();
+        author.setId(user.getId());
+        author.setNickname(user.getNickname());
+        author.setAvatar(user.getAvatar());
+        resp.setAuthor(author);
+    }
+
+    /**
+     * 从数据库查询用户信息并填充到回复响应的 author 字段。
+     */
+    private void fillReplyAuthorFromUser(ReplyResponse resp, Long userId) {
+        User user = userMapper.selectById(userId);
+        if (user == null) return;
+        ReplyResponse.AuthorInfo author = new ReplyResponse.AuthorInfo();
+        author.setId(user.getId());
+        author.setNickname(user.getNickname());
+        author.setAvatar(user.getAvatar());
         resp.setAuthor(author);
     }
 

@@ -1,6 +1,7 @@
 package com.lzz.lime_server.dto.response;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.Data;
 
 import java.time.LocalDateTime;
@@ -41,9 +42,13 @@ public class ReplyResponse {
     private boolean liked;
 
     // 回复者是否为笔记作者本人
+    @JsonProperty("isNoteAuthor")
     private boolean isNoteAuthor;
 
     private LocalDateTime createTime;
+
+    // IP 属地，为 null 时不输出
+    private String ipLocation;
 
     @Data
     public static class AuthorInfo {

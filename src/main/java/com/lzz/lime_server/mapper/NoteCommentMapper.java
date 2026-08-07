@@ -19,7 +19,7 @@ public interface NoteCommentMapper extends BaseMapper<NoteComment> {
      */
     @Select("""
             SELECT nc.id, nc.note_id, nc.user_id, nc.content, nc.voice_url, nc.voice_duration,
-                   nc.like_count, nc.reply_count, nc.hot_score, nc.create_time,
+                   nc.like_count, nc.reply_count, nc.hot_score, nc.create_time, nc.ip_location,
                    u.nickname AS author_nickname, u.avatar AS author_avatar
             FROM note_comment nc
             JOIN `user` u ON u.id = nc.user_id AND u.deleted = 0
@@ -45,7 +45,7 @@ public interface NoteCommentMapper extends BaseMapper<NoteComment> {
      */
     @Select("""
             SELECT nc.id, nc.note_id, nc.user_id, nc.content, nc.voice_url, nc.voice_duration,
-                   nc.like_count, nc.reply_count, nc.hot_score, nc.create_time,
+                   nc.like_count, nc.reply_count, nc.hot_score, nc.create_time, nc.ip_location,
                    u.nickname AS author_nickname, u.avatar AS author_avatar
             FROM note_comment nc
             JOIN `user` u ON u.id = nc.user_id AND u.deleted = 0
@@ -67,7 +67,7 @@ public interface NoteCommentMapper extends BaseMapper<NoteComment> {
     @Select("""
             SELECT nc.id, nc.note_id, nc.user_id, nc.parent_id, nc.reply_to_user_id,
                    nc.content, nc.voice_url, nc.voice_duration,
-                   nc.like_count, nc.create_time,
+                   nc.like_count, nc.create_time, nc.ip_location,
                    u.nickname AS author_nickname, u.avatar AS author_avatar,
                    ru.nickname AS reply_to_nickname
             FROM note_comment nc
@@ -90,7 +90,7 @@ public interface NoteCommentMapper extends BaseMapper<NoteComment> {
     @Select("""
             SELECT nc.id, nc.note_id, nc.user_id, nc.parent_id, nc.reply_to_user_id,
                    nc.content, nc.voice_url, nc.voice_duration,
-                   nc.like_count, nc.create_time,
+                   nc.like_count, nc.create_time, nc.ip_location,
                    u.nickname AS author_nickname, u.avatar AS author_avatar,
                    ru.nickname AS reply_to_nickname
             FROM note_comment nc
@@ -122,6 +122,8 @@ public interface NoteCommentMapper extends BaseMapper<NoteComment> {
         private Integer replyCount;
         private Integer hotScore;
         private LocalDateTime createTime;
+        // IP 属地
+        private String ipLocation;
         // 作者信息
         private String authorNickname;
         private String authorAvatar;
