@@ -4,12 +4,13 @@ CREATE TABLE IF NOT EXISTS `note` (
     `title`       VARCHAR(100),
     `content`     TEXT,
     `status`      TINYINT      NOT NULL DEFAULT 1 COMMENT '0=草稿, 1=已发布',
-    `like_count`  INT          NOT NULL DEFAULT 0,
-    `fav_count`   INT          NOT NULL DEFAULT 0,
-    `view_count`  INT          NOT NULL DEFAULT 0,
+    `like_count`    INT          NOT NULL DEFAULT 0,
+    `fav_count`     INT          NOT NULL DEFAULT 0,
+    `view_count`    INT          NOT NULL DEFAULT 0,
+    `comment_count` INT          NOT NULL DEFAULT 0,
     `deleted`     TINYINT      NOT NULL DEFAULT 0,
     `create_time` DATETIME     DEFAULT CURRENT_TIMESTAMP,
-    `update_time` DATETIME     DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+    `update_time` DATETIME     DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE IF NOT EXISTS `note_image` (
@@ -79,6 +80,7 @@ CREATE TABLE IF NOT EXISTS `note_comment` (
     `reply_count`       INT          NOT NULL DEFAULT 0  COMMENT '仅一级评论有效',
     `hot_score`         INT          NOT NULL DEFAULT 0  COMMENT '热度分=like_count+reply_count*2',
     `ip_address`        VARCHAR(64)  NULL,
+    `ip_location`       VARCHAR(50)  NULL         COMMENT 'IP 属地（省份或国家），发布时解析存入',
     `deleted`           TINYINT      NOT NULL DEFAULT 0,
     `create_time`       DATETIME     DEFAULT CURRENT_TIMESTAMP,
     `update_time`       DATETIME     DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
