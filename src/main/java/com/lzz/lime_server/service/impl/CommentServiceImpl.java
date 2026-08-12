@@ -344,11 +344,17 @@ public class CommentServiceImpl implements CommentService {
         }
 
         // 逻辑删除（MyBatis-Plus @TableLogic 会自动处理 deleted 字段）
-        commentMapper.deleteById(commentId);
+        // 删除一级评论时，连带逻辑删除其下所有回复
+        int deletedCount = commentMapper.deleteById(commentId);
+        if (comment.getParentId() == null) {
+            deletedCount += commentMapper.delete(new LambdaQueryWrapper<NoteComment>()
+                    .eq(NoteComment::getParentId, commentId));
+        }
 
+        // 笔记总评论数同步减少（包括本次删除及级联删除的回复）
         noteMapper.update(null, new LambdaUpdateWrapper<Note>()
                 .eq(Note::getId, comment.getNoteId())
-                .setSql("comment_count = GREATEST(comment_count - 1, 0)"));
+                .setSql("comment_count = GREATEST(comment_count - " + deletedCount + ", 0)"));
 
         // 若删除的是回复，则父评论 reply_count - 1，同步更新 hot_score
         if (comment.getParentId() != null) {
