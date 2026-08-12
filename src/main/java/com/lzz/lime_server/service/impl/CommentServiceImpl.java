@@ -77,6 +77,7 @@ public class CommentServiceImpl implements CommentService {
 
         CommentResponse resp = toCommentResponse(comment, note.getUserId(), Collections.emptyList(), false);
         fillCommentAuthor(resp, userId);
+        resp.setImages(fetchImages(comment.getId()));
         return resp;
     }
 
@@ -123,8 +124,15 @@ public class CommentServiceImpl implements CommentService {
 
         evictHotCache(noteId);
 
-        ReplyResponse resp = toReplyResponse(reply, note.getUserId(), false, null);
+        String replyToNickname = null;
+        if (request.getReplyToUserId() != null) {
+            User replyToUser = userMapper.selectById(request.getReplyToUserId());
+            if (replyToUser != null) replyToNickname = replyToUser.getNickname();
+        }
+
+        ReplyResponse resp = toReplyResponse(reply, note.getUserId(), false, replyToNickname);
         fillReplyAuthorFromUser(resp, userId);
+        resp.setImages(fetchImages(reply.getId()));
         return resp;
     }
 
@@ -227,14 +235,19 @@ public class CommentServiceImpl implements CommentService {
 
         Long nextCursor = (hasMore && !rows.isEmpty()) ? rows.getLast().getId() : null;
 
+        List<Long> replyIds = rows.stream().map(NoteCommentMapper.CommentRow::getId).toList();
+
         // 批量查当前用户点赞状态
-        Set<Long> likedIds = batchLikedCommentIds(
-                rows.stream().map(NoteCommentMapper.CommentRow::getId).toList(), currentUserId);
+        Set<Long> likedIds = batchLikedCommentIds(replyIds, currentUserId);
+
+        // 批量查回复图片
+        Map<Long, List<String>> imagesMap = batchImages(replyIds);
 
         List<ReplyResponse> items = rows.stream().map(row -> {
             ReplyResponse resp = toReplyResponse(
                     rowToEntity(row), note.getUserId(), likedIds.contains(row.getId()), row.getReplyToNickname());
             fillReplyAuthor(resp, row);
+            resp.setImages(imagesMap.getOrDefault(row.getId(), null));
             return resp;
         }).toList();
 
@@ -441,6 +454,16 @@ public class CommentServiceImpl implements CommentService {
                 .stream().collect(Collectors.groupingBy(
                         NoteCommentImage::getCommentId,
                         Collectors.mapping(NoteCommentImage::getUrl, Collectors.toList())));
+    }
+
+    /** 查询单条评论的图片列表，无图片时返回 null */
+    private List<String> fetchImages(Long commentId) {
+        List<String> urls = commentImageMapper.selectList(
+                        new LambdaQueryWrapper<NoteCommentImage>()
+                                .eq(NoteCommentImage::getCommentId, commentId)
+                                .orderByAsc(NoteCommentImage::getSortOrder))
+                .stream().map(NoteCommentImage::getUrl).toList();
+        return urls.isEmpty() ? null : urls;
     }
 
     /**
