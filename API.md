@@ -985,6 +985,28 @@ Access Token 过期后，用 Refresh Token 换取新的双 Token。
 | voiceDuration | int | 否* | 语音时长（秒），传 voiceUrl 时必填 |
 | replyToUserId | long | 否 | 被回复的用户 ID（回复某条回复时传，用于显示"回复@xxx"） |
 
+**响应**
+```json
+{
+  "code": 200,
+  "data": {
+    "id": 5,
+    "author": { "id": 20, "nickname": "用户B", "avatar": "https://..." },
+    "replyToUserId": 10,
+    "replyToNickname": "用户A",
+    "content": "谢谢！",
+    "images": ["https://..."],
+    "voiceUrl": null,
+    "voiceDuration": null,
+    "likeCount": 0,
+    "liked": false,
+    "isNoteAuthor": false,
+    "createTime": "2026-08-09T10:05:00",
+    "ipLocation": "广东"
+  }
+}
+```
+
 ---
 
 ### 获取笔记评论列表
@@ -1057,6 +1079,34 @@ Access Token 过期后，用 Refresh Token 换取新的双 Token。
 | cursor | long | - | 游标（上一页最后一条回复的 id），首次不传 |
 | size | int | 20 | 每页条数，最大 50 |
 
+**响应**
+```json
+{
+  "code": 200,
+  "data": {
+    "items": [
+      {
+        "id": 5,
+        "author": { "id": 20, "nickname": "用户B", "avatar": "https://..." },
+        "replyToUserId": 10,
+        "replyToNickname": "用户A",
+        "content": "谢谢",
+        "images": ["https://..."],
+        "voiceUrl": null,
+        "voiceDuration": null,
+        "likeCount": 3,
+        "liked": false,
+        "isNoteAuthor": false,
+        "createTime": "2026-08-03T10:05:00",
+        "ipLocation": "广东"
+      }
+    ],
+    "nextCursor": 5,
+    "hasMore": false
+  }
+}
+```
+
 ---
 
 ### 点赞评论 / 回复
@@ -1079,4 +1129,4 @@ Access Token 过期后，用 Refresh Token 换取新的双 Token。
 
 `DELETE /api/comments/{commentId}`
 
-评论者本人或笔记作者均可删除。一级评论被删后，其下回复仍保留（逻辑删除）。
+评论者本人或笔记作者均可删除。逻辑删除：删一级评论会连带删除其下所有回复；删回复则父评论 `reply_count` 同步减一。笔记总评论数（`comment_count`）始终同步减少。

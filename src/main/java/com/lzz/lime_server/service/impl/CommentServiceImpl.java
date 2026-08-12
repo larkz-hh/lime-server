@@ -77,6 +77,7 @@ public class CommentServiceImpl implements CommentService {
 
         CommentResponse resp = toCommentResponse(comment, note.getUserId(), Collections.emptyList(), false);
         fillCommentAuthor(resp, userId);
+        resp.setImages(fetchImages(comment.getId()));
         return resp;
     }
 
@@ -123,8 +124,15 @@ public class CommentServiceImpl implements CommentService {
 
         evictHotCache(noteId);
 
-        ReplyResponse resp = toReplyResponse(reply, note.getUserId(), false, null);
+        String replyToNickname = null;
+        if (request.getReplyToUserId() != null) {
+            User replyToUser = userMapper.selectById(request.getReplyToUserId());
+            if (replyToUser != null) replyToNickname = replyToUser.getNickname();
+        }
+
+        ReplyResponse resp = toReplyResponse(reply, note.getUserId(), false, replyToNickname);
         fillReplyAuthorFromUser(resp, userId);
+        resp.setImages(fetchImages(reply.getId()));
         return resp;
     }
 
@@ -227,14 +235,19 @@ public class CommentServiceImpl implements CommentService {
 
         Long nextCursor = (hasMore && !rows.isEmpty()) ? rows.getLast().getId() : null;
 
+        List<Long> replyIds = rows.stream().map(NoteCommentMapper.CommentRow::getId).toList();
+
         // 批量查当前用户点赞状态
-        Set<Long> likedIds = batchLikedCommentIds(
-                rows.stream().map(NoteCommentMapper.CommentRow::getId).toList(), currentUserId);
+        Set<Long> likedIds = batchLikedCommentIds(replyIds, currentUserId);
+
+        // 批量查回复图片
+        Map<Long, List<String>> imagesMap = batchImages(replyIds);
 
         List<ReplyResponse> items = rows.stream().map(row -> {
             ReplyResponse resp = toReplyResponse(
                     rowToEntity(row), note.getUserId(), likedIds.contains(row.getId()), row.getReplyToNickname());
             fillReplyAuthor(resp, row);
+            resp.setImages(imagesMap.getOrDefault(row.getId(), null));
             return resp;
         }).toList();
 
@@ -331,11 +344,17 @@ public class CommentServiceImpl implements CommentService {
         }
 
         // 逻辑删除（MyBatis-Plus @TableLogic 会自动处理 deleted 字段）
-        commentMapper.deleteById(commentId);
+        // 删除一级评论时，连带逻辑删除其下所有回复
+        int deletedCount = commentMapper.deleteById(commentId);
+        if (comment.getParentId() == null) {
+            deletedCount += commentMapper.delete(new LambdaQueryWrapper<NoteComment>()
+                    .eq(NoteComment::getParentId, commentId));
+        }
 
+        // 笔记总评论数同步减少（包括本次删除及级联删除的回复）
         noteMapper.update(null, new LambdaUpdateWrapper<Note>()
                 .eq(Note::getId, comment.getNoteId())
-                .setSql("comment_count = GREATEST(comment_count - 1, 0)"));
+                .setSql("comment_count = GREATEST(comment_count - " + deletedCount + ", 0)"));
 
         // 若删除的是回复，则父评论 reply_count - 1，同步更新 hot_score
         if (comment.getParentId() != null) {
@@ -441,6 +460,16 @@ public class CommentServiceImpl implements CommentService {
                 .stream().collect(Collectors.groupingBy(
                         NoteCommentImage::getCommentId,
                         Collectors.mapping(NoteCommentImage::getUrl, Collectors.toList())));
+    }
+
+    /** 查询单条评论的图片列表，无图片时返回 null */
+    private List<String> fetchImages(Long commentId) {
+        List<String> urls = commentImageMapper.selectList(
+                        new LambdaQueryWrapper<NoteCommentImage>()
+                                .eq(NoteCommentImage::getCommentId, commentId)
+                                .orderByAsc(NoteCommentImage::getSortOrder))
+                .stream().map(NoteCommentImage::getUrl).toList();
+        return urls.isEmpty() ? null : urls;
     }
 
     /**
