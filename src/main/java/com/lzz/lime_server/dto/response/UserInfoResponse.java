@@ -19,4 +19,8 @@ public class UserInfoResponse {
     private LocalDate birthday;
     private String region;
     private String role;
+    /** 点赞列表是否对外公开：false=公开，true=私密 */
+    private Boolean likePrivate;
+    /** 收藏列表是否对外公开：false=公开，true=私密 */
+    private Boolean favPrivate;
 }
