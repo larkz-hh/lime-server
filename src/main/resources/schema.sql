@@ -10,7 +10,8 @@ CREATE TABLE IF NOT EXISTS `note` (
     `comment_count` INT          NOT NULL DEFAULT 0,
     `deleted`     TINYINT      NOT NULL DEFAULT 0,
     `create_time` DATETIME     DEFAULT CURRENT_TIMESTAMP,
-    `update_time` DATETIME     DEFAULT CURRENT_TIMESTAMP
+    `update_time` DATETIME     DEFAULT CURRENT_TIMESTAMP,
+    FULLTEXT KEY `ft_note_title_content` (`title`, `content`) WITH PARSER ngram
 );
 
 CREATE TABLE IF NOT EXISTS `note_image` (
