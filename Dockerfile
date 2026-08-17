@@ -2,6 +2,8 @@
 FROM maven:3.9-eclipse-temurin-21 AS builder
 WORKDIR /app
 COPY pom.xml .
+# 国内构建，阿里云 Maven 镜像
+COPY settings.xml /root/.m2/settings.xml
 RUN mvn dependency:go-offline -q
 COPY src ./src
 RUN mvn clean package -DskipTests -q
