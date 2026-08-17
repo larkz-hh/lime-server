@@ -269,6 +269,8 @@ public class UserServiceImpl implements UserService {
         resp.setBirthday(user.getBirthday());
         resp.setRegion(user.getRegion());
         resp.setRole(user.getRole());
+        resp.setLikePrivate(user.getLikePrivate());
+        resp.setFavPrivate(user.getFavPrivate());
         return resp;
     }
 }

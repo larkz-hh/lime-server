@@ -5,6 +5,8 @@ import com.lzz.lime_server.entity.Note;
 import lombok.Data;
 import org.apache.ibatis.annotations.*;
 
+import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.List;
 
 @Mapper
@@ -88,7 +90,11 @@ public interface NoteMapper extends BaseMapper<Note> {
         // 点赞/收藏列表查询时填充，作为游标使用；其他查询为 null
         private Long cursorId;
         // 浏览历史查询时填充；其他查询为 null
-        private java.time.LocalDateTime viewTime;
+        private LocalDateTime viewTime;
+        // 搜索查询时填充：排序分值（composite=综合分，likes/comments/favs=对应计数，latest=发布时间 epoch 毫秒）
+        private Long sortScore;
+        // 搜索查询时填充：发布时间 epoch 毫秒，作为二级排序键与游标
+        private Long createTimeMs;
     }
 
     @Select("""
@@ -188,4 +194,125 @@ public interface NoteMapper extends BaseMapper<Note> {
     List<NoteFeedRow> selectViewedNotes(@Param("userId") Long userId,
                                         @Param("cursor") Long cursor,
                                         @Param("size") int size);
+
+    /**
+     * 关键词搜索笔记，标题/正文匹配（FULLTEXT ngram）或作者昵称/handle 匹配（召回其已发布笔记）。
+     * 5 种排序模式统一用 sort_score 排序；kw 为 null 时走 LIKE 兜底（单字或含空格关键词）。
+     * 排序：sort_score DESC, 发布时间 DESC, id DESC；游标统一为 "{sortScore}:{createTimeMs}:{id}"。
+     * create_time 历史数据可能为 NULL，统一用 COALESCE(create_time, update_time) 兜底。
+     */
+    @Select("""
+            <script>
+            SELECT n.id, n.title, n.like_count,
+                   ni.url AS cover_image,
+                   u.id AS author_id, u.nickname AS author_nickname, u.avatar AS author_avatar,
+                   UNIX_TIMESTAMP(COALESCE(n.create_time, n.update_time)) * 1000 AS create_time_ms,
+                   <choose>
+                     <when test="sort == 'composite'">
+                       <if test="kw != null">CAST(MATCH(n.title, n.content) AGAINST(#{kw} IN NATURAL LANGUAGE MODE) * 10000 AS SIGNED) * 5 +</if>
+                       LEAST(n.like_count * 2 + n.comment_count * 3 + n.fav_count * 2, 100000)
+                       - GREATEST(DATEDIFF(#{today}, DATE(COALESCE(n.create_time, n.update_time))), 0)
+                     </when>
+                     <when test="sort == 'likes'">n.like_count</when>
+                     <when test="sort == 'comments'">n.comment_count</when>
+                     <when test="sort == 'favs'">n.fav_count</when>
+                     <otherwise>UNIX_TIMESTAMP(COALESCE(n.create_time, n.update_time)) * 1000</otherwise>
+                   </choose> AS sort_score
+            FROM note n
+            LEFT JOIN note_image ni ON ni.note_id = n.id
+                AND ni.sort_order = (SELECT MIN(sort_order) FROM note_image WHERE note_id = n.id)
+            LEFT JOIN `user` u ON u.id = n.user_id AND u.deleted = 0
+            WHERE n.status = 1 AND n.deleted = 0
+              <if test="fromTime != null">AND COALESCE(n.create_time, n.update_time) &gt;= #{fromTime}</if>
+              AND (
+                <choose>
+                  <when test="kw != null">
+                    MATCH(n.title, n.content) AGAINST(#{kw} IN NATURAL LANGUAGE MODE) &gt; 0
+                    OR u.nickname LIKE #{likePattern}
+                    OR u.handle LIKE #{likePattern}
+                  </when>
+                  <otherwise>
+                    n.title LIKE #{likePattern} OR n.content LIKE #{likePattern}
+                    OR u.nickname LIKE #{likePattern} OR u.handle LIKE #{likePattern}
+                  </otherwise>
+                </choose>
+              )
+              AND (
+                #{cursorScore} IS NULL
+                OR (<choose>
+                          <when test="sort == 'composite'">
+                            <if test="kw != null">CAST(MATCH(n.title, n.content) AGAINST(#{kw} IN NATURAL LANGUAGE MODE) * 10000 AS SIGNED) * 5 +</if>
+                            LEAST(n.like_count * 2 + n.comment_count * 3 + n.fav_count * 2, 100000)
+                            - GREATEST(DATEDIFF(#{today}, DATE(COALESCE(n.create_time, n.update_time))), 0)
+                          </when>
+                          <when test="sort == 'likes'">n.like_count</when>
+                          <when test="sort == 'comments'">n.comment_count</when>
+                          <when test="sort == 'favs'">n.fav_count</when>
+                          <otherwise>UNIX_TIMESTAMP(COALESCE(n.create_time, n.update_time)) * 1000</otherwise>
+                        </choose> &lt; #{cursorScore})
+                OR (<choose>
+                          <when test="sort == 'composite'">
+                            <if test="kw != null">CAST(MATCH(n.title, n.content) AGAINST(#{kw} IN NATURAL LANGUAGE MODE) * 10000 AS SIGNED) * 5 +</if>
+                            LEAST(n.like_count * 2 + n.comment_count * 3 + n.fav_count * 2, 100000)
+                            - GREATEST(DATEDIFF(#{today}, DATE(COALESCE(n.create_time, n.update_time))), 0)
+                          </when>
+                          <when test="sort == 'likes'">n.like_count</when>
+                          <when test="sort == 'comments'">n.comment_count</when>
+                          <when test="sort == 'favs'">n.fav_count</when>
+                          <otherwise>UNIX_TIMESTAMP(COALESCE(n.create_time, n.update_time)) * 1000</otherwise>
+                        </choose> = #{cursorScore}
+                        AND UNIX_TIMESTAMP(COALESCE(n.create_time, n.update_time)) * 1000 &lt; #{cursorTimeMs})
+                OR (<choose>
+                          <when test="sort == 'composite'">
+                            <if test="kw != null">CAST(MATCH(n.title, n.content) AGAINST(#{kw} IN NATURAL LANGUAGE MODE) * 10000 AS SIGNED) * 5 +</if>
+                            LEAST(n.like_count * 2 + n.comment_count * 3 + n.fav_count * 2, 100000)
+                            - GREATEST(DATEDIFF(#{today}, DATE(COALESCE(n.create_time, n.update_time))), 0)
+                          </when>
+                          <when test="sort == 'likes'">n.like_count</when>
+                          <when test="sort == 'comments'">n.comment_count</when>
+                          <when test="sort == 'favs'">n.fav_count</when>
+                          <otherwise>UNIX_TIMESTAMP(COALESCE(n.create_time, n.update_time)) * 1000</otherwise>
+                        </choose> = #{cursorScore}
+                        AND UNIX_TIMESTAMP(COALESCE(n.create_time, n.update_time)) * 1000 = #{cursorTimeMs}
+                        AND n.id &lt; #{cursorId})
+              )
+            ORDER BY sort_score DESC, create_time_ms DESC, n.id DESC
+            LIMIT #{size}
+            </script>
+            """)
+    @Results(id = "searchResultMap", value = {
+            @Result(property = "id",             column = "id"),
+            @Result(property = "title",          column = "title"),
+            @Result(property = "likeCount",      column = "like_count"),
+            @Result(property = "coverImage",     column = "cover_image"),
+            @Result(property = "authorId",       column = "author_id"),
+            @Result(property = "authorNickname", column = "author_nickname"),
+            @Result(property = "authorAvatar",   column = "author_avatar"),
+            @Result(property = "sortScore",      column = "sort_score"),
+            @Result(property = "createTimeMs",   column = "create_time_ms")
+    })
+    List<NoteFeedRow> selectSearch(@Param("kw") String kw,
+                                   @Param("likePattern") String likePattern,
+                                   @Param("today") LocalDate today,
+                                   @Param("fromTime") LocalDateTime fromTime,
+                                   @Param("sort") String sort,
+                                   @Param("cursorScore") Long cursorScore,
+                                   @Param("cursorTimeMs") Long cursorTimeMs,
+                                   @Param("cursorId") Long cursorId,
+                                   @Param("size") int size);
+
+    /**
+     * 搜索联想，从已发布笔记标题中按前缀匹配取热度较高的标题。
+     */
+    @Select("""
+            SELECT title
+            FROM note
+            WHERE status = 1 AND deleted = 0
+              AND title IS NOT NULL AND title <> ''
+              AND title LIKE #{prefix}
+            GROUP BY title
+            ORDER BY MAX(like_count) DESC, MAX(id) DESC
+            LIMIT #{size}
+            """)
+    List<String> selectSuggestTitles(@Param("prefix") String prefix, @Param("size") int size);
 }

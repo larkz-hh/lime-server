@@ -236,25 +236,29 @@ Access Token 过期后，用 Refresh Token 换取新的双 Token。
     "gender": 1,
     "birthday": "2000-01-01",
     "region": "上海",
-    "role": "USER"
+    "role": "USER",
+    "likePrivate": false,
+    "favPrivate": false
   }
 }
 ```
 
 > 不返回 `email` 字段（隐私保护）。
 
-| 字段            | 类型   | 说明                                        |
-|-----------------|--------|---------------------------------------------|
-| id              | number | 用户 ID                                     |
-| nickname        | string | 昵称                                        |
-| handle          | string | 唯一标识符                                   |
-| bio             | string | 个人简介，可为 null                          |
-| avatar          | string | 头像图片 URL，可为 null                      |
-| backgroundImage | string | 个人主页背景图 URL，可为 null                |
-| gender          | number | 性别：0=未设置，1=男，2=女，可为 null        |
-| birthday        | string | 生日，格式 `yyyy-MM-dd`，可为 null           |
-| region          | string | 地区，可为 null                              |
-| role            | string | 角色，当前固定为 `USER`                      |
+| 字段            | 类型    | 说明                                        |
+|-----------------|---------|---------------------------------------------|
+| id              | number  | 用户 ID                                     |
+| nickname        | string  | 昵称                                        |
+| handle          | string  | 唯一标识符                                   |
+| bio             | string  | 个人简介，可为 null                          |
+| avatar          | string  | 头像图片 URL，可为 null                      |
+| backgroundImage | string  | 个人主页背景图 URL，可为 null                |
+| gender          | number  | 性别：0=未设置，1=男，2=女，可为 null        |
+| birthday        | string  | 生日，格式 `yyyy-MM-dd`，可为 null           |
+| region          | string  | 地区，可为 null                              |
+| role            | string  | 角色，当前固定为 `USER`                      |
+| likePrivate     | boolean | 点赞列表是否私密：false=公开，true=私密      |
+| favPrivate      | boolean | 收藏列表是否私密：false=公开，true=私密      |
 
 ---
 
@@ -281,24 +285,28 @@ Access Token 过期后，用 Refresh Token 换取新的双 Token。
     "gender": 1,
     "birthday": "2000-01-01",
     "region": "上海",
-    "role": "USER"
+    "role": "USER",
+    "likePrivate": false,
+    "favPrivate": false
   }
 }
 ```
 
-| 字段            | 类型   | 说明                                        |
-|-----------------|--------|---------------------------------------------|
-| id              | number | 用户 ID                                     |
-| email           | string | 登录邮箱                                    |
-| nickname        | string | 昵称                                        |
-| handle          | string | 唯一标识符（类似用户名）                     |
-| bio             | string | 个人简介，可为 null                          |
-| avatar          | string | 头像图片 URL，可为 null                      |
-| backgroundImage | string | 个人主页背景图 URL，可为 null                |
-| gender          | number | 性别：0=未设置，1=男，2=女，可为 null        |
-| birthday        | string | 生日，格式 `yyyy-MM-dd`，可为 null           |
-| region          | string | 地区，可为 null                              |
-| role            | string | 角色，当前固定为 `USER`                      |
+| 字段            | 类型    | 说明                                        |
+|-----------------|---------|---------------------------------------------|
+| id              | number  | 用户 ID                                     |
+| email           | string  | 登录邮箱                                    |
+| nickname        | string  | 昵称                                        |
+| handle          | string  | 唯一标识符（类似用户名）                     |
+| bio             | string  | 个人简介，可为 null                          |
+| avatar          | string  | 头像图片 URL，可为 null                      |
+| backgroundImage | string  | 个人主页背景图 URL，可为 null                |
+| gender          | number  | 性别：0=未设置，1=男，2=女，可为 null        |
+| birthday        | string  | 生日，格式 `yyyy-MM-dd`，可为 null           |
+| region          | string  | 地区，可为 null                              |
+| role            | string  | 角色，当前固定为 `USER`                      |
+| likePrivate     | boolean | 点赞列表是否私密：false=公开，true=私密      |
+| favPrivate      | boolean | 收藏列表是否私密：false=公开，true=私密      |
 
 ---
 
@@ -1130,3 +1138,187 @@ Access Token 过期后，用 Refresh Token 换取新的双 Token。
 `DELETE /api/comments/{commentId}`
 
 评论者本人或笔记作者均可删除。逻辑删除：删一级评论会连带删除其下所有回复；删回复则父评论 `reply_count` 同步减一。笔记总评论数（`comment_count`）始终同步减少。
+
+---
+
+## 搜索接口 `/api/search`
+
+> 以下接口均需登录（`Authorization: Bearer <accessToken>`）。
+
+---
+
+### 搜索笔记
+
+`GET /api/search/notes`
+
+按关键词搜索已发布笔记，Cursor 分页。匹配范围：笔记标题、笔记正文、作者昵称 / handle（命中作者则召回其已发布笔记，统一返回笔记卡片）。关键词为整串匹配，不做分词。`sort`（排序依据）与 `within`（发布时间范围）可自由组合。
+
+**Query 参数**
+
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| keyword | string | 是 | 搜索关键词，1-50 个字符；全空白报错 |
+| sort | string | 否 | 排序：`composite`（综合，默认，相关度 + 热度）/ `latest`（最新）/ `likes`（最多赞）/ `comments`（最多评论）/ `favs`（最多收藏） |
+| within | string | 否 | 发布时间范围：`all`（不限，默认）/ `day`（一天内）/ `week`（一周内）/ `halfYear`（半年内） |
+| cursor | string | 否 | 上一页游标（`nextCursor` 值），格式 `{score}:{createTimeMs}:{id}`，首次不传 |
+| size | number | 否 | 每页条数，默认 10，最大 50 |
+
+**响应**：结构同「获取信息流」，`nextCursor` 为字符串。
+
+```json
+{
+  "code": 200,
+  "message": "操作成功",
+  "data": {
+    "items": [
+      {
+        "id": 42,
+        "title": "关注科协",
+        "coverImage": "http://minio-host/lime/notes/uuid1.jpg",
+        "likeCount": 128,
+        "liked": false,
+        "author": {
+          "id": 7,
+          "nickname": "taffy",
+          "avatar": "http://minio-host/lime/avatars/uuid.jpg"
+        }
+      }
+    ],
+    "nextCursor": "10350:1754094600000:42",
+    "hasMore": true
+  }
+}
+```
+
+---
+
+### 搜索用户
+
+`GET /api/search/users`
+
+按昵称 / handle 搜索用户，返回用户卡片，Cursor 分页。匹配度优先排序：精确匹配 > 前缀匹配 > 包含匹配，同精度按已发布笔记数降序。结果中的 `isMe` 标记当前登录用户本人。
+
+**Query 参数**
+
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| keyword | string | 是 | 搜索关键词，1-50 个字符；全空白报错 |
+| cursor | string | 否 | 上一页游标（`nextCursor` 值），格式 `{matchRank}:{noteCount}:{id}`，首次不传 |
+| size | number | 否 | 每页条数，默认 10，最大 50 |
+
+**响应**
+
+```json
+{
+  "code": 200,
+  "message": "操作成功",
+  "data": {
+    "items": [
+      {
+        "id": 7,
+        "nickname": "taffy",
+        "handle": "user_xxxxxxxx",
+        "avatar": "http://minio-host/lime/avatars/uuid.jpg",
+        "isMe": false
+      }
+    ],
+    "nextCursor": "3:12:7",
+    "hasMore": true
+  }
+}
+```
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| id | number | 用户 ID |
+| nickname | string | 昵称 |
+| handle | string | 唯一标识符 |
+| avatar | string | 头像 URL，可为 null |
+| isMe | boolean | 是否为当前登录用户本人 |
+| nextCursor | string | 下一页游标，无更多数据时为 null |
+| hasMore | boolean | 是否还有下一页 |
+
+---
+
+### 搜索联想
+
+`GET /api/search/suggest`
+
+输入前缀时实时返回提示关键词。提示词来源：已发布笔记标题（前缀匹配，按热度取）+ 当日热搜词，已去重，不含用户。
+
+**Query 参数**
+
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| q | string | 否 | 输入前缀；为空返回空列表 |
+| size | number | 否 | 返回条数，默认 10，最大 20 |
+
+**响应**
+
+```json
+{
+  "code": 200,
+  "message": "操作成功",
+  "data": ["北京美食攻略", "北京美食探店"]
+}
+```
+
+---
+
+### 热搜榜
+
+`GET /api/search/hot`
+
+返回当日热搜关键词，按点击次数降序。点击次数由「上报搜索」接口累计（Redis 按天轮转，跨天自动重置）。
+
+**Query 参数**
+
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| size | number | 否 | 返回条数，默认 10，最大 50 |
+
+**响应**
+
+```json
+{
+  "code": 200,
+  "message": "操作成功",
+  "data": [
+    { "keyword": "北京美食", "count": 128 },
+    { "keyword": "猫", "count": 96 }
+  ]
+}
+```
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| keyword | string | 热搜词 |
+| count | number | 当日点击次数 |
+
+---
+
+### 上报搜索
+
+`POST /api/search/report`
+
+前端在用户确认搜索时（回车 / 点击联想词）调用一次，用于热搜统计。翻页请求不调用，避免重复计数。
+
+**请求体**
+
+```json
+{
+  "keyword": "北京美食"
+}
+```
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| keyword | string | 是 | 被搜索的关键词，1-50 个字符 |
+
+**响应**
+
+```json
+{ "code": 200, "message": "操作成功", "data": null }
+```
+
+```
