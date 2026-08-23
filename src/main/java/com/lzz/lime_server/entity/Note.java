@@ -9,6 +9,11 @@ import java.time.LocalDateTime;
 @TableName("note")
 public class Note {
 
+    /** 笔记类型：图文 */
+    public static final int TYPE_TEXT = 1;
+    /** 笔记类型：视频 */
+    public static final int TYPE_VIDEO = 2;
+
     @TableId(type = IdType.AUTO)
     private Long id;
 
@@ -17,6 +22,9 @@ public class Note {
     private String title;
 
     private String content;
+
+    /** 笔记类型：1=图文, 2=视频 */
+    private Integer noteType;
 
     // 0=草稿,1=已发布
     private Integer status;
