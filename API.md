@@ -706,6 +706,7 @@ Access Token 过期后，用 Refresh Token 换取新的双 Token。
         "title": "关注科协喵",
         "coverImage": "http://minio-host/lime/notes/uuid1.jpg",
         "likeCount": 128,
+        "noteType": 1,
         "author": {
           "id": 7,
           "nickname": "taffy",
@@ -724,14 +725,142 @@ Access Token 过期后，用 Refresh Token 换取新的双 Token。
 | items              | array   | 笔记卡片列表                                      |
 | items[].id         | number  | 笔记 ID                                           |
 | items[].title      | string  | 笔记标题，可为 null                               |
-| items[].coverImage | string  | 封面图（第一张图片 URL），无图片时为 null          |
+| items[].coverImage | string  | 封面图（图文=第一张图片 URL；视频=视频封面 URL），无图时为 null |
+| items[].coverWidth / coverHeight | number | 封面宽高（客户端上报，瀑布流卡片按比例布局用）；历史数据可能为 null |
 | items[].likeCount  | number  | 点赞数                                            |
 | items[].liked      | boolean | 当前用户是否已点赞该笔记                           |
+| items[].noteType   | number  | 笔记类型：1=图文，2=视频                           |
+| items[].video      | object  | 视频摘要（仅视频笔记输出；图文笔记无该字段）        |
+| items[].video.durationMs | number | 视频时长（毫秒），用于卡片时长角标             |
+| items[].video.width / height | number | 视频宽高，用于横屏判断                    |
+| items[].video.orientation | string | `PORTRAIT` / `LANDSCAPE`（宽 > 高为横屏）   |
+| items[].video.playUrl     | string | 播放地址（直放模式为原始 mp4）              |
 | items[].author.id       | number | 作者用户 ID                                  |
 | items[].author.nickname | string | 作者昵称                                     |
 | items[].author.avatar   | string | 作者头像 URL，可为 null                      |
 | nextCursor         | number  | 下一页游标（最后一条笔记的 ID），无更多数据时为 null |
 | hasMore            | boolean | 是否还有更多数据                                  |
+
+> 用户列表 / 点赞 / 收藏 / 浏览历史 / 搜索等接口返回的卡片结构与 feed 一致，视频笔记同样携带 `noteType` 与 `video` 字段。
+
+---
+
+### 获取视频流（Video Feed）
+
+`GET /api/notes/video-feed`
+
+返回已发布视频笔记列表，供独立视频 Tab 与详情页上滑「下一条视频」共用。Cursor 分页，按笔记 ID 倒序（最新在前）。一次返回多条即天然的「预加载下一条」数据源。
+
+**需要登录**：是
+
+**Query 参数**
+
+| 参数       | 类型   | 必填 | 说明                                              |
+|------------|--------|------|---------------------------------------------------|
+| cursor     | number | 否   | 上一页最后一条视频笔记的 ID，不传则从最新开始      |
+| seedNoteId | number | 否   | 起始锚点：返回 ID ≤ 它的视频（**含自身**），用于进入视频页时首屏定位与上滑保持顺序 |
+| orientation | string | 否  | 横竖屏过滤：`landscape`（仅横屏，宽>高）/ `portrait`（仅竖屏）；不传则不限。全屏横屏会话时传 `landscape` 保证滑到的下一条都是横屏 |
+| size       | number | 否   | 每页条数，默认 10，最大 20                          |
+
+**响应**：结构同「获取信息流」，items 全部为视频笔记（`noteType=2` 且携带完整 `video` 对象）。
+
+> **横屏全屏会话用法（推荐流场景）**：横屏视频进全屏后，用 `orientation=landscape&seedNoteId=当前视频id` 拉独立的横屏流；退出全屏时由 App 把会话中播过的横屏视频插回主队列入口之后。个人主页等「有限列表」场景无需此参数——App 在已拉取的列表内本地过滤即可。
+
+---
+
+### 发弹幕
+
+`POST /api/notes/{noteId}/danmaku`
+
+发布一条弹幕（仅视频笔记支持）。时间点 `videoTimeMs` 由客户端按当前播放位置传入，需落在视频时长范围内。
+
+**需要登录**：是
+
+**Path 参数**
+
+| 参数   | 类型   | 说明        |
+|--------|--------|-------------|
+| noteId | number | 视频笔记 ID |
+
+**请求体**
+
+```json
+{ "content": "前方高能", "videoTimeMs": 12500, "color": "#FFFFFF" }
+```
+
+| 字段        | 类型   | 必填 | 说明                                          |
+|-------------|--------|------|-----------------------------------------------|
+| content     | string | 是   | 弹幕文字，1-200 字符                            |
+| videoTimeMs | number | 是   | 弹幕出现时间点（毫秒，相对视频开头），≥ 0       |
+| color       | string | 否   | 弹幕颜色（#RRGGBB），不传则客户端用默认白色      |
+
+**响应**
+
+```json
+{
+  "code": 200,
+  "message": "操作成功",
+  "data": {
+    "id": 1,
+    "content": "前方高能",
+    "videoTimeMs": 12500,
+    "color": "#FFFFFF",
+    "author": { "id": 10, "nickname": "用户A", "avatar": "https://..." },
+    "createTime": "2026-08-10T10:00:00"
+  }
+}
+```
+
+---
+
+### 拉取弹幕列表
+
+`GET /api/notes/{noteId}/danmaku`
+
+返回视频笔记的全部弹幕，按出现时间点升序（同时间点按 id 升序）。MVP 全量返回，单视频上限 2000 条。
+
+**需要登录**：是
+
+**Path 参数**
+
+| 参数   | 类型   | 说明        |
+|--------|--------|-------------|
+| noteId | number | 视频笔记 ID |
+
+**响应**
+
+```json
+{
+  "code": 200,
+  "message": "操作成功",
+  "data": {
+    "items": [
+      { "id": 1, "content": "前方高能", "videoTimeMs": 12500, "color": "#FFFFFF",
+        "author": { "id": 10, "nickname": "用户A", "avatar": "https://..." },
+        "createTime": "2026-08-10T10:00:00" }
+    ],
+    "count": 1
+  }
+}
+```
+
+---
+
+### 删除弹幕
+
+`DELETE /api/notes/{noteId}/danmaku/{danmakuId}`
+
+逻辑删除，幂等。仅弹幕发送者本人或视频笔记作者可删，否则返回业务错误。
+
+**需要登录**：是
+
+**请求体**：无
+
+**响应**
+
+```json
+{ "code": 200, "message": "操作成功", "data": null }
+```
 
 ---
 
@@ -763,6 +892,34 @@ Access Token 过期后，用 Refresh Token 换取新的双 Token。
 
 ---
 
+### 上传笔记视频
+
+`POST /api/notes/videos`
+
+上传单个视频文件至 MinIO，返回可用于发布视频笔记的视频 URL。发布视频笔记前先调用此接口上传视频，再将返回的 URL 与客户端采集的元数据（时长/宽高）一并提交发布接口。
+
+**需要登录**：是
+
+**Content-Type**：`multipart/form-data`
+
+| 字段 | 类型 | 必填 | 说明                                   |
+|------|------|------|----------------------------------------|
+| file | file | 是   | 视频文件，仅支持 mp4，最大 200MB，建议 ≤ 10 分钟 |
+
+**响应**
+
+```json
+{
+  "code": 200,
+  "message": "操作成功",
+  "data": {
+    "url": "http://minio-host/lime/videos/uuid.mp4"
+  }
+}
+```
+
+---
+
 ### 获取笔记详情
 
 `GET /api/notes/{id}`
@@ -775,6 +932,12 @@ Access Token 过期后，用 Refresh Token 换取新的双 Token。
 |------|--------|---------|
 | id   | number | 笔记 ID |
 
+**Query 参数**
+
+| 参数   | 类型    | 必填 | 说明                                                          |
+|--------|---------|------|---------------------------------------------------------------|
+| noView | boolean | 否   | 传 `true` 时本次请求**不累计浏览量、不写浏览历史**（视频流补水 hydrate 场景使用）；默认 `false`，行为与历史一致 |
+
 **响应**
 
 ```json
@@ -786,6 +949,7 @@ Access Token 过期后，用 Refresh Token 换取新的双 Token。
     "title": "今天又水了一天代码",
     "content": "收到...",
     "status": 1,
+    "noteType": 1,
     "images": [
       { "id": 1, "url": "http://minio-host/lime/notes/uuid1.jpg", "sortOrder": 0 }
     ],
@@ -793,6 +957,7 @@ Access Token 过期后，用 Refresh Token 换取新的双 Token。
     "favCount": 36,
     "viewCount": 1024,
     "commentCount": 42,
+    "danmakuCount": 0,
     "liked": false,
     "favorited": true,
     "author": {
@@ -812,6 +977,33 @@ Access Token 过期后，用 Refresh Token 换取新的双 Token。
 | favorited    | boolean | 当前用户是否已收藏                 |
 | viewCount    | number  | 浏览量（每次请求该接口自动 +1）    |
 | commentCount | number  | 评论总数（含回复）                 |
+
+**视频笔记（noteType=2）额外返回 `video` 字段**（图文笔记不输出该字段）：
+
+```json
+{
+  "noteType": 2,
+  "images": [],
+  "danmakuCount": 12,
+  "video": {
+    "durationMs": 15000,
+    "width": 1080,
+    "height": 1920,
+    "orientation": "PORTRAIT",
+    "playUrl": "http://minio-host/lime/videos/uuid.mp4",
+    "coverUrl": "http://minio-host/lime/notes/cover-uuid.jpg"
+  }
+}
+```
+
+| 字段                  | 类型    | 说明                                                |
+|-----------------------|---------|-----------------------------------------------------|
+| video.durationMs      | number  | 视频时长（毫秒）                                     |
+| video.width/height    | number  | 视频宽高（客户端上报），用于横屏判断与卡片布局         |
+| video.orientation     | string  | 横竖屏：`PORTRAIT` / `LANDSCAPE`（宽 > 高为横屏）     |
+| video.playUrl         | string  | 播放地址（直放模式为原始 mp4；未来转码模式切换为 HLS，字段名不变） |
+| video.coverUrl        | string  | 封面地址，可为 null                                  |
+| danmakuCount          | number  | 弹幕数（仅视频笔记有意义，独立于评论数）              |
 
 ---
 
@@ -867,8 +1059,8 @@ Access Token 过期后，用 Refresh Token 换取新的双 Token。
   "title": "今天又水了一天代码",
   "content": "收到...",
   "images": [
-    { "url": "http://minio-host/lime/notes/uuid1.jpg", "sortOrder": 0 },
-    { "url": "http://minio-host/lime/notes/uuid2.jpg", "sortOrder": 1 }
+    { "url": "http://minio-host/lime/notes/uuid1.jpg", "width": 1080, "height": 1440, "sortOrder": 0 },
+    { "url": "http://minio-host/lime/notes/uuid2.jpg", "width": 1080, "height": 1080, "sortOrder": 1 }
   ]
 }
 ```
@@ -876,10 +1068,13 @@ Access Token 过期后，用 Refresh Token 换取新的双 Token。
 | 字段               | 类型   | 必填 | 说明                             |
 |--------------------|--------|------|----------------------------------|
 | status             | number | 否   | 0=草稿，1=已发布，默认 1         |
+| noteType           | number | 否   | 笔记类型：1=图文（默认），2=视频；传 2 走视频发布逻辑 |
 | title              | string | 否   | 笔记标题，最多 100 字符；与 content 至少填一项 |
 | content            | string | 否   | 笔记正文，最多 1000 字符；与 title 至少填一项  |
 | images             | array  | 是   | 图片列表，1 ~ 9 张               |
 | images[].url       | string | 是   | 图片 URL（由上传接口返回）       |
+| images[].width     | number | 否   | 图片宽（客户端读取本地图片后上报）；仅封面（第一张）建议填写，其余图片可省略 |
+| images[].height    | number | 否   | 图片高（客户端读取本地图片后上报）；仅封面（第一张）建议填写，其余图片可省略 |
 | images[].sortOrder | number | 否   | 排列顺序，从 0 开始，默认 0      |
 
 **响应**
@@ -894,6 +1089,7 @@ Access Token 过期后，用 Refresh Token 换取新的双 Token。
     "title": "今天又水了一天代码",
     "content": "收到...",
     "status": 1,
+    "noteType": 1,
     "images": [
       { "id": 1, "url": "http://minio-host/lime/notes/uuid1.jpg", "sortOrder": 0 },
       { "id": 2, "url": "http://minio-host/lime/notes/uuid2.jpg", "sortOrder": 1 }
@@ -903,6 +1099,53 @@ Access Token 过期后，用 Refresh Token 换取新的双 Token。
   }
 }
 ```
+
+---
+
+### 发布视频笔记
+
+`POST /api/notes`（`noteType = 2`）
+
+提交已上传的视频 URL 与客户端采集的元数据，创建并发布视频笔记。标题/正文可选（与图文不同，可全空）；封面 `coverUrl` **必填**，由客户端上传（用户选图或自动截第一帧，均走「上传笔记图片」接口）。
+
+**需要登录**：是
+
+**请求体**
+
+```json
+{
+  "status": 1,
+  "noteType": 2,
+  "title": "周末骑行 vlog",
+  "content": "第一次剪视频",
+  "video": {
+    "url": "http://minio-host/lime/videos/uuid.mp4",
+    "durationMs": 15000,
+    "width": 1080,
+    "height": 1920,
+    "coverUrl": "http://minio-host/lime/notes/cover-uuid.jpg",
+    "coverWidth": 1080,
+    "coverHeight": 1920
+  }
+}
+```
+
+| 字段              | 类型   | 必填 | 说明                                                |
+|-------------------|--------|------|-----------------------------------------------------|
+| status            | number | 否   | 0=草稿，1=已发布，默认 1                             |
+| noteType          | number | 是   | 固定传 2（视频）                                      |
+| title             | string | 否   | 笔记标题，最多 100 字符                               |
+| content           | string | 否   | 笔记正文，最多 1000 字符                              |
+| video             | object | 是   | 视频信息                                             |
+| video.url         | string | 是   | 视频 URL（由上传视频接口返回）                         |
+| video.durationMs  | number | 是   | 视频时长（毫秒，客户端 MediaMetadataRetriever 采集）   |
+| video.width       | number | 是   | 视频宽（客户端采集，用于横屏判断）                     |
+| video.height      | number | 是   | 视频高（客户端采集）                                   |
+| video.coverUrl    | string | 是   | 封面 URL（客户端上传或截帧），为空时报「视频封面不能为空」 |
+| video.coverWidth  | number | 否   | 封面图宽（客户端读取后上报，瀑布流布局用）；建议填写     |
+| video.coverHeight | number | 否   | 封面图高（客户端读取后上报，瀑布流布局用）；建议填写     |
+
+**响应**：结构同「发布图文笔记」，`noteType` 为 2，额外含 `video` 对象（durationMs/width/height/orientation/playUrl/coverUrl），`images` 为空数组。
 
 ---
 
@@ -1151,7 +1394,7 @@ Access Token 过期后，用 Refresh Token 换取新的双 Token。
 
 `GET /api/search/notes`
 
-按关键词搜索已发布笔记，Cursor 分页。匹配范围：笔记标题、笔记正文、作者昵称 / handle（命中作者则召回其已发布笔记，统一返回笔记卡片）。关键词为整串匹配，不做分词。`sort`（排序依据）与 `within`（发布时间范围）可自由组合。
+按关键词搜索已发布笔记，Cursor 分页。匹配范围：笔记标题、笔记正文、作者昵称 / handle（命中作者则召回其已发布笔记，统一返回笔记卡片）。关键词为整串匹配，不做分词。`sort`（排序依据）、`within`（发布时间范围）与 `type`（笔记类型）可自由组合。视频笔记与图文笔记混排在结果中，卡片携带 `noteType` 与 `video` 字段。
 
 **Query 参数**
 
@@ -1160,6 +1403,7 @@ Access Token 过期后，用 Refresh Token 换取新的双 Token。
 | keyword | string | 是 | 搜索关键词，1-50 个字符；全空白报错 |
 | sort | string | 否 | 排序：`composite`（综合，默认，相关度 + 热度）/ `latest`（最新）/ `likes`（最多赞）/ `comments`（最多评论）/ `favs`（最多收藏） |
 | within | string | 否 | 发布时间范围：`all`（不限，默认）/ `day`（一天内）/ `week`（一周内）/ `halfYear`（半年内） |
+| type | string | 否 | 笔记类型过滤：`all`（全部，默认）/ `image`（图文）/ `video`（视频） |
 | cursor | string | 否 | 上一页游标（`nextCursor` 值），格式 `{score}:{createTimeMs}:{id}`，首次不传 |
 | size | number | 否 | 每页条数，默认 10，最大 50 |
 
