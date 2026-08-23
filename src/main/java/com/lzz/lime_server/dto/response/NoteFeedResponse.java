@@ -11,6 +11,11 @@ public class NoteFeedResponse {
     private Long id;
     private String title;
     private String coverImage;
+    // 封面宽高（客户端上报；可能为 null 不输出）
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    private Integer coverWidth;
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    private Integer coverHeight;
     private Integer likeCount;
     private Boolean liked;
     // 笔记类型：1=图文, 2=视频

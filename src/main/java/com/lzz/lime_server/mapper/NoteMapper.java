@@ -16,6 +16,8 @@ public interface NoteMapper extends BaseMapper<Note> {
             <script>
             SELECT n.id, n.title, n.like_count, n.note_type,
                    COALESCE(nv.cover_url, ni.url) AS cover_image,
+                   COALESCE(nv.cover_width, ni.width) AS cover_width,
+                   COALESCE(nv.cover_height, ni.height) AS cover_height,
                    nv.duration_ms AS video_duration_ms, nv.video_width, nv.video_height,
                    nv.original_url AS video_play_url,
                    u.id AS author_id, u.nickname AS author_nickname, u.avatar AS author_avatar
@@ -36,6 +38,8 @@ public interface NoteMapper extends BaseMapper<Note> {
             @Result(property = "likeCount",      column = "like_count"),
             @Result(property = "noteType",       column = "note_type"),
             @Result(property = "coverImage",     column = "cover_image"),
+            @Result(property = "coverWidth",     column = "cover_width"),
+            @Result(property = "coverHeight",    column = "cover_height"),
             @Result(property = "videoDurationMs", column = "video_duration_ms"),
             @Result(property = "videoWidth",     column = "video_width"),
             @Result(property = "videoHeight",    column = "video_height"),
@@ -52,6 +56,8 @@ public interface NoteMapper extends BaseMapper<Note> {
             <script>
             SELECT n.id, n.title, n.like_count, n.note_type,
                    COALESCE(nv.cover_url, ni.url) AS cover_image,
+                   COALESCE(nv.cover_width, ni.width) AS cover_width,
+                   COALESCE(nv.cover_height, ni.height) AS cover_height,
                    nv.duration_ms AS video_duration_ms, nv.video_width, nv.video_height,
                    nv.original_url AS video_play_url,
                    u.id AS author_id, u.nickname AS author_nickname, u.avatar AS author_avatar
@@ -75,6 +81,8 @@ public interface NoteMapper extends BaseMapper<Note> {
             @Result(property = "likeCount",      column = "like_count"),
             @Result(property = "noteType",       column = "note_type"),
             @Result(property = "coverImage",     column = "cover_image"),
+            @Result(property = "coverWidth",     column = "cover_width"),
+            @Result(property = "coverHeight",    column = "cover_height"),
             @Result(property = "videoDurationMs", column = "video_duration_ms"),
             @Result(property = "videoWidth",     column = "video_width"),
             @Result(property = "videoHeight",    column = "video_height"),
@@ -94,6 +102,8 @@ public interface NoteMapper extends BaseMapper<Note> {
             <script>
             SELECT n.id, n.title, n.like_count, n.status, n.view_count, n.note_type,
                    COALESCE(nv.cover_url, ni.url) AS cover_image,
+                   COALESCE(nv.cover_width, ni.width) AS cover_width,
+                   COALESCE(nv.cover_height, ni.height) AS cover_height,
                    nv.duration_ms AS video_duration_ms, nv.video_width, nv.video_height,
                    nv.original_url AS video_play_url,
                    u.id AS author_id, u.nickname AS author_nickname, u.avatar AS author_avatar
@@ -116,6 +126,8 @@ public interface NoteMapper extends BaseMapper<Note> {
             @Result(property = "viewCount",      column = "view_count"),
             @Result(property = "noteType",       column = "note_type"),
             @Result(property = "coverImage",     column = "cover_image"),
+            @Result(property = "coverWidth",     column = "cover_width"),
+            @Result(property = "coverHeight",    column = "cover_height"),
             @Result(property = "videoDurationMs", column = "video_duration_ms"),
             @Result(property = "videoWidth",     column = "video_width"),
             @Result(property = "videoHeight",    column = "video_height"),
@@ -141,6 +153,9 @@ public interface NoteMapper extends BaseMapper<Note> {
         private Integer viewCount;
         private Integer noteType;
         private String coverImage;
+        // 封面宽高（客户端上报；图文=第一张图宽高，视频=封面图宽高；历史数据可能为 null）
+        private Integer coverWidth;
+        private Integer coverHeight;
         // 视频笔记字段（视频行才有值，图文行为 null）
         private Long videoDurationMs;
         private Integer videoWidth;
@@ -163,6 +178,8 @@ public interface NoteMapper extends BaseMapper<Note> {
             <script>
             SELECT nl.id AS cursor_id, n.id, n.title, n.like_count, n.note_type,
                    COALESCE(nv.cover_url, ni.url) AS cover_image,
+                   COALESCE(nv.cover_width, ni.width) AS cover_width,
+                   COALESCE(nv.cover_height, ni.height) AS cover_height,
                    nv.duration_ms AS video_duration_ms, nv.video_width, nv.video_height,
                    nv.original_url AS video_play_url,
                    u.id AS author_id, u.nickname AS author_nickname, u.avatar AS author_avatar
@@ -185,6 +202,8 @@ public interface NoteMapper extends BaseMapper<Note> {
             @Result(property = "likeCount",      column = "like_count"),
             @Result(property = "noteType",       column = "note_type"),
             @Result(property = "coverImage",     column = "cover_image"),
+            @Result(property = "coverWidth",     column = "cover_width"),
+            @Result(property = "coverHeight",    column = "cover_height"),
             @Result(property = "videoDurationMs", column = "video_duration_ms"),
             @Result(property = "videoWidth",     column = "video_width"),
             @Result(property = "videoHeight",    column = "video_height"),
@@ -201,6 +220,8 @@ public interface NoteMapper extends BaseMapper<Note> {
             <script>
             SELECT nf.id AS cursor_id, n.id, n.title, n.like_count, n.note_type,
                    COALESCE(nv.cover_url, ni.url) AS cover_image,
+                   COALESCE(nv.cover_width, ni.width) AS cover_width,
+                   COALESCE(nv.cover_height, ni.height) AS cover_height,
                    nv.duration_ms AS video_duration_ms, nv.video_width, nv.video_height,
                    nv.original_url AS video_play_url,
                    u.id AS author_id, u.nickname AS author_nickname, u.avatar AS author_avatar
@@ -223,6 +244,8 @@ public interface NoteMapper extends BaseMapper<Note> {
             @Result(property = "likeCount",      column = "like_count"),
             @Result(property = "noteType",       column = "note_type"),
             @Result(property = "coverImage",     column = "cover_image"),
+            @Result(property = "coverWidth",     column = "cover_width"),
+            @Result(property = "coverHeight",    column = "cover_height"),
             @Result(property = "videoDurationMs", column = "video_duration_ms"),
             @Result(property = "videoWidth",     column = "video_width"),
             @Result(property = "videoHeight",    column = "video_height"),
@@ -246,6 +269,8 @@ public interface NoteMapper extends BaseMapper<Note> {
                    nv.create_time AS view_time,
                    n.id, n.title, n.like_count, n.note_type,
                    COALESCE(v.cover_url, ni.url) AS cover_image,
+                   COALESCE(v.cover_width, ni.width) AS cover_width,
+                   COALESCE(v.cover_height, ni.height) AS cover_height,
                    v.duration_ms AS video_duration_ms, v.video_width, v.video_height,
                    v.original_url AS video_play_url,
                    u.id AS author_id, u.nickname AS author_nickname, u.avatar AS author_avatar
@@ -269,6 +294,8 @@ public interface NoteMapper extends BaseMapper<Note> {
             @Result(property = "likeCount",      column = "like_count"),
             @Result(property = "noteType",       column = "note_type"),
             @Result(property = "coverImage",     column = "cover_image"),
+            @Result(property = "coverWidth",     column = "cover_width"),
+            @Result(property = "coverHeight",    column = "cover_height"),
             @Result(property = "videoDurationMs", column = "video_duration_ms"),
             @Result(property = "videoWidth",     column = "video_width"),
             @Result(property = "videoHeight",    column = "video_height"),
@@ -291,6 +318,8 @@ public interface NoteMapper extends BaseMapper<Note> {
             <script>
             SELECT n.id, n.title, n.like_count, n.note_type,
                    COALESCE(nv.cover_url, ni.url) AS cover_image,
+                   COALESCE(nv.cover_width, ni.width) AS cover_width,
+                   COALESCE(nv.cover_height, ni.height) AS cover_height,
                    nv.duration_ms AS video_duration_ms, nv.video_width, nv.video_height,
                    nv.original_url AS video_play_url,
                    u.id AS author_id, u.nickname AS author_nickname, u.avatar AS author_avatar,
@@ -376,6 +405,8 @@ public interface NoteMapper extends BaseMapper<Note> {
             @Result(property = "likeCount",      column = "like_count"),
             @Result(property = "noteType",       column = "note_type"),
             @Result(property = "coverImage",     column = "cover_image"),
+            @Result(property = "coverWidth",     column = "cover_width"),
+            @Result(property = "coverHeight",    column = "cover_height"),
             @Result(property = "videoDurationMs", column = "video_duration_ms"),
             @Result(property = "videoWidth",     column = "video_width"),
             @Result(property = "videoHeight",    column = "video_height"),

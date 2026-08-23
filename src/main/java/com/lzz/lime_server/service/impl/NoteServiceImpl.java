@@ -102,6 +102,8 @@ public class NoteServiceImpl implements NoteService {
             NoteImage img = new NoteImage();
             img.setNoteId(note.getId());// 绑定刚生成的笔记ID
             img.setUrl(item.getUrl());
+            img.setWidth(item.getWidth());// 宽高客户端上报
+            img.setHeight(item.getHeight());
             img.setSortOrder(item.getSortOrder());
             return img;
         }).toList();
@@ -140,6 +142,8 @@ public class NoteServiceImpl implements NoteService {
         noteVideo.setNoteId(note.getId());
         noteVideo.setOriginalUrl(video.getUrl());
         noteVideo.setCoverUrl(video.getCoverUrl());
+        noteVideo.setCoverWidth(video.getCoverWidth());// 封面宽高客户端上报，瀑布流卡片布局用
+        noteVideo.setCoverHeight(video.getCoverHeight());
         noteVideo.setVideoWidth(video.getWidth());
         noteVideo.setVideoHeight(video.getHeight());
         noteVideo.setDurationMs(video.getDurationMs());
@@ -176,6 +180,8 @@ public class NoteServiceImpl implements NoteService {
             item.setId(row.getId());
             item.setTitle(row.getTitle());
             item.setCoverImage(row.getCoverImage());
+            item.setCoverWidth(row.getCoverWidth());
+            item.setCoverHeight(row.getCoverHeight());
             item.setLikeCount(row.getLikeCount());
             item.setStatus(row.getStatus());
             item.setNoteType(row.getNoteType());
@@ -276,6 +282,8 @@ public class NoteServiceImpl implements NoteService {
         item.setId(row.getId());
         item.setTitle(row.getTitle());
         item.setCoverImage(row.getCoverImage());
+        item.setCoverWidth(row.getCoverWidth());
+        item.setCoverHeight(row.getCoverHeight());
         item.setLikeCount(row.getLikeCount());
         item.setNoteType(row.getNoteType());
         item.setVideo(toVideoInfo(row));
@@ -362,6 +370,8 @@ public class NoteServiceImpl implements NoteService {
             NoteDetailResponse.ImageItem item = new NoteDetailResponse.ImageItem();
             item.setId(img.getId());
             item.setUrl(img.getUrl());
+            item.setWidth(img.getWidth());
+            item.setHeight(img.getHeight());
             item.setSortOrder(img.getSortOrder());
             return item;
         }).toList());
@@ -620,6 +630,8 @@ public class NoteServiceImpl implements NoteService {
             item.setId(row.getId());
             item.setTitle(row.getTitle());
             item.setCoverImage(row.getCoverImage());
+            item.setCoverWidth(row.getCoverWidth());
+            item.setCoverHeight(row.getCoverHeight());
             item.setLikeCount(row.getLikeCount());
             item.setViewTime(row.getViewTime());
             item.setNoteType(row.getNoteType());
@@ -676,6 +688,8 @@ public class NoteServiceImpl implements NoteService {
             item.setId(row.getId());
             item.setTitle(row.getTitle());
             item.setCoverImage(row.getCoverImage());
+            item.setCoverWidth(row.getCoverWidth());
+            item.setCoverHeight(row.getCoverHeight());
             item.setLikeCount(row.getLikeCount());
             item.setNoteType(row.getNoteType());
             item.setVideo(toVideoInfo(row));
@@ -736,6 +750,8 @@ public class NoteServiceImpl implements NoteService {
             NoteResponse.ImageItem item = new NoteResponse.ImageItem();
             item.setId(img.getId());
             item.setUrl(img.getUrl());
+            item.setWidth(img.getWidth());
+            item.setHeight(img.getHeight());
             item.setSortOrder(img.getSortOrder());
             return item;
         }).toList());

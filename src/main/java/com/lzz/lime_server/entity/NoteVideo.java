@@ -26,6 +26,12 @@ public class NoteVideo {
     /** 封面地址（客户端上传或截帧），可为 null */
     private String coverUrl;
 
+    /** 封面图宽（客户端上报），可为 null */
+    private Integer coverWidth;
+
+    /** 封面图高（客户端上报），可为 null */
+    private Integer coverHeight;
+
     /** 视频宽（客户端上报，用于横屏判断） */
     private Integer videoWidth;
 

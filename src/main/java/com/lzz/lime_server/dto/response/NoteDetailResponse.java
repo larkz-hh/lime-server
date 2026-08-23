@@ -35,6 +35,11 @@ public class NoteDetailResponse {
     public static class ImageItem {
         private Long id;
         private String url;
+        // 图片宽高（客户端上报，可能为 null 不输出）
+        @JsonInclude(JsonInclude.Include.NON_NULL)
+        private Integer width;
+        @JsonInclude(JsonInclude.Include.NON_NULL)
+        private Integer height;
         private Integer sortOrder;
     }
 

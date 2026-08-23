@@ -19,6 +19,8 @@ CREATE TABLE IF NOT EXISTS `note_image` (
     `id`          BIGINT       AUTO_INCREMENT PRIMARY KEY,
     `note_id`     BIGINT       NOT NULL,
     `url`         VARCHAR(500) NOT NULL,
+    `width`       INT          NULL COMMENT '图片宽（客户端上报，瀑布流卡片布局用）',
+    `height`      INT          NULL COMMENT '图片高（客户端上报，瀑布流卡片布局用）',
     `sort_order`  INT          NOT NULL DEFAULT 0,
     `create_time` DATETIME     DEFAULT CURRENT_TIMESTAMP
 );
@@ -112,6 +114,8 @@ CREATE TABLE IF NOT EXISTS `note_video` (
     `note_id`           BIGINT       NOT NULL UNIQUE,
     `original_url`      VARCHAR(500) NOT NULL COMMENT '原始视频(直放模式即播放地址)',
     `cover_url`         VARCHAR(500) NULL COMMENT '封面(客户端上传或截帧)',
+    `cover_width`       INT          NULL COMMENT '封面图宽(客户端上报，瀑布流卡片布局用)',
+    `cover_height`      INT          NULL COMMENT '封面图高(客户端上报，瀑布流卡片布局用)',
     `video_width`       INT          NOT NULL COMMENT '视频宽(客户端上报)',
     `video_height`      INT          NOT NULL COMMENT '视频高(用于横屏判断)',
     `duration_ms`       BIGINT       NOT NULL COMMENT '时长毫秒(客户端上报)',
