@@ -11,8 +11,18 @@ public class NoteFeedResponse {
     private Long id;
     private String title;
     private String coverImage;
+    // 封面宽高（客户端上报；可能为 null 不输出）
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    private Integer coverWidth;
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    private Integer coverHeight;
     private Integer likeCount;
     private Boolean liked;
+    // 笔记类型：1=图文, 2=视频
+    private Integer noteType;
+    // 视频信息：仅视频笔记有值，图文笔记为 null 不输出
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    private NoteVideoInfo video;
     // 笔记状态：0=草稿，1=已发布；仅在用户笔记列表接口中返回，Feed 接口中为 null 不输出
     @JsonInclude(JsonInclude.Include.NON_NULL)
     private Integer status;

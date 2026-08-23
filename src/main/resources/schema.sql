@@ -3,6 +3,7 @@ CREATE TABLE IF NOT EXISTS `note` (
     `user_id`     BIGINT       NOT NULL,
     `title`       VARCHAR(100),
     `content`     TEXT,
+    `note_type`   TINYINT      NOT NULL DEFAULT 1 COMMENT '1=图文, 2=视频',
     `status`      TINYINT      NOT NULL DEFAULT 1 COMMENT '0=草稿, 1=已发布',
     `like_count`    INT          NOT NULL DEFAULT 0,
     `fav_count`     INT          NOT NULL DEFAULT 0,
@@ -18,6 +19,8 @@ CREATE TABLE IF NOT EXISTS `note_image` (
     `id`          BIGINT       AUTO_INCREMENT PRIMARY KEY,
     `note_id`     BIGINT       NOT NULL,
     `url`         VARCHAR(500) NOT NULL,
+    `width`       INT          NULL COMMENT '图片宽（客户端上报，瀑布流卡片布局用）',
+    `height`      INT          NULL COMMENT '图片高（客户端上报，瀑布流卡片布局用）',
     `sort_order`  INT          NOT NULL DEFAULT 0,
     `create_time` DATETIME     DEFAULT CURRENT_TIMESTAMP
 );
@@ -104,4 +107,35 @@ CREATE TABLE IF NOT EXISTS `comment_like` (
     `user_id`     BIGINT       NOT NULL,
     `create_time` DATETIME     DEFAULT CURRENT_TIMESTAMP,
     UNIQUE KEY `uk_comment_like_comment_user` (`comment_id`, `user_id`)
+);
+
+CREATE TABLE IF NOT EXISTS `note_video` (
+    `id`                BIGINT       AUTO_INCREMENT PRIMARY KEY,
+    `note_id`           BIGINT       NOT NULL UNIQUE,
+    `original_url`      VARCHAR(500) NOT NULL COMMENT '原始视频(直放模式即播放地址)',
+    `cover_url`         VARCHAR(500) NULL COMMENT '封面(客户端上传或截帧)',
+    `cover_width`       INT          NULL COMMENT '封面图宽(客户端上报，瀑布流卡片布局用)',
+    `cover_height`      INT          NULL COMMENT '封面图高(客户端上报，瀑布流卡片布局用)',
+    `video_width`       INT          NOT NULL COMMENT '视频宽(客户端上报)',
+    `video_height`      INT          NOT NULL COMMENT '视频高(用于横屏判断)',
+    `duration_ms`       BIGINT       NOT NULL COMMENT '时长毫秒(客户端上报)',
+    `transcode_status`  TINYINT      NOT NULL DEFAULT 2 COMMENT '直放模式恒为2(可播);0/1/3 仅转码模式使用',
+    `hls_master_url`    VARCHAR(500) NULL COMMENT '【转码模式预留】多码率 master.m3u8',
+    `hls_levels`        JSON         NULL COMMENT '【转码模式预留】档位信息',
+    `fail_reason`       VARCHAR(200) NULL COMMENT '【转码模式预留】',
+    `retry_count`       INT          NOT NULL DEFAULT 0 COMMENT '【转码模式预留】',
+    `create_time`       DATETIME     DEFAULT CURRENT_TIMESTAMP,
+    `update_time`       DATETIME     DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS `note_danmaku` (
+    `id`             BIGINT       AUTO_INCREMENT PRIMARY KEY,
+    `note_id`        BIGINT       NOT NULL COMMENT '视频笔记 id',
+    `user_id`        BIGINT       NOT NULL COMMENT '发弹幕用户',
+    `content`        VARCHAR(200) NOT NULL COMMENT '弹幕文字',
+    `video_time_ms`  BIGINT       NOT NULL COMMENT '弹幕出现时间点(毫秒,相对视频开头)',
+    `color`          VARCHAR(7)   NULL COMMENT '弹幕颜色,默认白色,客户端渲染用',
+    `deleted`        TINYINT      NOT NULL DEFAULT 0,
+    `create_time`    DATETIME     DEFAULT CURRENT_TIMESTAMP,
+    INDEX `idx_danmaku_note_time` (`note_id`, `video_time_ms`)
 );

@@ -33,6 +33,13 @@ public class NoteController {
         return Result.success(Map.of("url", url));
     }
 
+    /// 上传视频文件（mp4，≤200MB），返回可发布视频笔记的视频 URL
+    @PostMapping("/videos")
+    public Result<Map<String, String>> uploadNoteVideo(@RequestParam("file") MultipartFile file) {
+        String url = fileUploadService.uploadNoteVideo(file);
+        return Result.success(Map.of("url", url));
+    }
+
     /// 获取指定用户的笔记列表，Cursor 分页
     @GetMapping("/user/{userId}")
     public Result<CursorPage<NoteFeedResponse>> getUserNotes(
@@ -57,17 +64,37 @@ public class NoteController {
         return Result.success(noteService.getFeed(cursor, size, currentUserId()));
     }
 
-    /// 发布图文笔记
+    /// 视频流，Cursor 分页，按 id 倒序（最新在前）
+    /// orientation 可选：landscape=仅横屏（全屏横屏会话）/ portrait=仅竖屏，不传则不限
+    @GetMapping("/video-feed")
+    public Result<CursorPage<NoteFeedResponse>> getVideoFeed(
+            @RequestParam(required = false) Long cursor,
+            @RequestParam(required = false) Long seedNoteId,
+            @RequestParam(required = false) String orientation,
+            @RequestParam(defaultValue = "10") int size) {
+        String orientationVal = null;
+        if (orientation != null && !orientation.isBlank()) {
+            orientationVal = orientation.trim().toUpperCase();
+            if (!"LANDSCAPE".equals(orientationVal) && !"PORTRAIT".equals(orientationVal)) {
+                throw new BusinessException("orientation 参数非法，可选值：landscape / portrait");
+            }
+        }
+        size = Math.min(size, 20);
+        return Result.success(noteService.getVideoFeed(cursor, seedNoteId, orientationVal, size, currentUserId()));
+    }
+
+    /// 发布笔记
     @PostMapping
     public Result<NoteResponse> publishNote(@Valid @RequestBody PublishNoteRequest request) {
         NoteResponse resp = noteService.publishNote(currentUserId(), request);
         return Result.success(resp);
     }
 
-    /// 获取笔记详情
+    /// 获取笔记详情；noView=true 时不累计浏览量、不写浏览历史（视频流补水场景用）
     @GetMapping("/{id}")
-    public Result<NoteDetailResponse> getNoteDetail(@PathVariable Long id) {
-        return Result.success(noteService.getNoteDetail(id, currentUserId()));
+    public Result<NoteDetailResponse> getNoteDetail(@PathVariable Long id,
+                                                    @RequestParam(defaultValue = "false") boolean noView) {
+        return Result.success(noteService.getNoteDetail(id, currentUserId(), noView));
     }
 
     /// 点赞笔记

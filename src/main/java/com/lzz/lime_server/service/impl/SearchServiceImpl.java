@@ -5,7 +5,9 @@ import com.lzz.lime_server.common.exception.BusinessException;
 import com.lzz.lime_server.dto.response.CursorPage;
 import com.lzz.lime_server.dto.response.HotSearchWord;
 import com.lzz.lime_server.dto.response.NoteFeedResponse;
+import com.lzz.lime_server.dto.response.NoteVideoInfo;
 import com.lzz.lime_server.dto.response.UserSearchResult;
+import com.lzz.lime_server.entity.Note;
 import com.lzz.lime_server.entity.NoteLike;
 import com.lzz.lime_server.mapper.NoteLikeMapper;
 import com.lzz.lime_server.mapper.NoteMapper;
@@ -52,13 +54,15 @@ public class SearchServiceImpl implements SearchService {
      * <p>召回 = 标题/正文命中（FULLTEXT ngram）或作者昵称/handle 命中（召回其已发布笔记，
      * 统一以笔记卡片返回）。单字或含空格关键词自动走 LIKE 兜底
      * （ngram_token_size=2 单字不命中；空格会拆词违背整串匹配）。</p>
-     * <p>排序规则：主排序键（sort 决定）DESC → 发布时间 DESC → id DESC；
+     * <p>type 过滤笔记类型：all=全部，image=图文，video=视频。
+     * 排序规则：主排序键（sort 决定）DESC → 发布时间 DESC → id DESC；
      * 游标为 "{sortScore}:{createTimeMs}:{id}" 三段复合游标，首次查询传 null。
      * 每次多查一条用于判断 hasMore，同时批量 IN 查询填充当前用户的 liked 状态。</p>
      *
      * @param keyword       搜索关键词，trim 后非空、不超过 50 个字符
      * @param sort          排序方式：composite（综合）/ latest / likes / comments / favs
      * @param within        发布时间范围：all / day / week / halfYear，与 sort 自由组合
+     * @param type          笔记类型过滤：all / image / video
      * @param cursor        上一页 nextCursor，原样回传；格式非法抛业务异常
      * @param size          每页条数
      * @param currentUserId 当前登录用户 id，用于填充 liked
@@ -66,10 +70,15 @@ public class SearchServiceImpl implements SearchService {
      * @throws BusinessException 关键词为空/超长、within 或 cursor 非法时抛出
      */
     @Override
-    public CursorPage<NoteFeedResponse> searchNotes(String keyword, String sort, String within, String cursor, int size, Long currentUserId) {
+    public CursorPage<NoteFeedResponse> searchNotes(String keyword, String sort, String within, String type, String cursor, int size, Long currentUserId) {
         String kw = normalizeKeyword(keyword);
         String likePattern = "%" + escapeLike(keyword.trim()) + "%";
         LocalDateTime fromTime = resolveFromTime(within);
+        Integer noteTypeFilter = switch (type) {
+            case "image" -> Note.TYPE_TEXT;
+            case "video" -> Note.TYPE_VIDEO;
+            default -> null;// all：不限制类型
+        };
 
         // 游标解析：统一为 "{sortScore}:{createTimeMs}:{id}" 复合游标
         Long cursorScore = null;
@@ -88,7 +97,8 @@ public class SearchServiceImpl implements SearchService {
 
         // 多查一条判断是否还有下一页
         List<NoteMapper.NoteFeedRow> rows = noteMapper.selectSearch(
-                kw, likePattern, LocalDate.now(), fromTime, sort, cursorScore, cursorTimeMs, cursorId, size + 1);
+                kw, likePattern, LocalDate.now(), fromTime, sort, noteTypeFilter,
+                cursorScore, cursorTimeMs, cursorId, size + 1);
 
         boolean hasMore = rows.size() > size;
         if (hasMore) rows = rows.subList(0, size);
@@ -99,6 +109,11 @@ public class SearchServiceImpl implements SearchService {
             item.setTitle(row.getTitle());
             item.setCoverImage(row.getCoverImage());
             item.setLikeCount(row.getLikeCount());
+            item.setNoteType(row.getNoteType());
+            if (row.getNoteType() != null && row.getNoteType() == Note.TYPE_VIDEO) {
+                item.setVideo(NoteVideoInfo.of(row.getVideoDurationMs(), row.getVideoWidth(),
+                        row.getVideoHeight(), row.getVideoPlayUrl(), null));
+            }
 
             NoteFeedResponse.AuthorBrief author = new NoteFeedResponse.AuthorBrief();
             author.setId(row.getAuthorId());

@@ -14,12 +14,17 @@ public interface NoteMapper extends BaseMapper<Note> {
 
     @Select("""
             <script>
-            SELECT n.id, n.title, n.like_count,
-                   ni.url AS cover_image,
+            SELECT n.id, n.title, n.like_count, n.note_type,
+                   COALESCE(nv.cover_url, ni.url) AS cover_image,
+                   COALESCE(nv.cover_width, ni.width) AS cover_width,
+                   COALESCE(nv.cover_height, ni.height) AS cover_height,
+                   nv.duration_ms AS video_duration_ms, nv.video_width, nv.video_height,
+                   nv.original_url AS video_play_url,
                    u.id AS author_id, u.nickname AS author_nickname, u.avatar AS author_avatar
             FROM note n
             LEFT JOIN note_image ni ON ni.note_id = n.id
                 AND ni.sort_order = (SELECT MIN(sort_order) FROM note_image WHERE note_id = n.id)
+            LEFT JOIN note_video nv ON nv.note_id = n.id
             LEFT JOIN `user` u ON u.id = n.user_id
             WHERE n.status = 1 AND n.deleted = 0
             <if test="cursor != null">AND n.id &lt; #{cursor}</if>
@@ -31,12 +36,63 @@ public interface NoteMapper extends BaseMapper<Note> {
             @Result(property = "id",             column = "id"),
             @Result(property = "title",          column = "title"),
             @Result(property = "likeCount",      column = "like_count"),
+            @Result(property = "noteType",       column = "note_type"),
             @Result(property = "coverImage",     column = "cover_image"),
+            @Result(property = "coverWidth",     column = "cover_width"),
+            @Result(property = "coverHeight",    column = "cover_height"),
+            @Result(property = "videoDurationMs", column = "video_duration_ms"),
+            @Result(property = "videoWidth",     column = "video_width"),
+            @Result(property = "videoHeight",    column = "video_height"),
+            @Result(property = "videoPlayUrl",   column = "video_play_url"),
             @Result(property = "authorId",       column = "author_id"),
             @Result(property = "authorNickname", column = "author_nickname"),
             @Result(property = "authorAvatar",   column = "author_avatar")
     })
     List<NoteFeedRow> selectFeed(@Param("cursor") Long cursor, @Param("size") int size);
+
+    /// 视频流查询：仅视频笔记，id 倒序；seedNoteId 用于从指定笔记开始取（含自身，进视频页首屏定位）
+    /// orientation 可选过滤横竖屏：LANDSCAPE=宽>高（全屏横屏会话用），PORTRAIT=宽<=高
+    @Select("""
+            <script>
+            SELECT n.id, n.title, n.like_count, n.note_type,
+                   COALESCE(nv.cover_url, ni.url) AS cover_image,
+                   COALESCE(nv.cover_width, ni.width) AS cover_width,
+                   COALESCE(nv.cover_height, ni.height) AS cover_height,
+                   nv.duration_ms AS video_duration_ms, nv.video_width, nv.video_height,
+                   nv.original_url AS video_play_url,
+                   u.id AS author_id, u.nickname AS author_nickname, u.avatar AS author_avatar
+            FROM note n
+            LEFT JOIN note_image ni ON ni.note_id = n.id
+                AND ni.sort_order = (SELECT MIN(sort_order) FROM note_image WHERE note_id = n.id)
+            LEFT JOIN note_video nv ON nv.note_id = n.id
+            LEFT JOIN `user` u ON u.id = n.user_id
+            WHERE n.status = 1 AND n.deleted = 0 AND n.note_type = 2
+            <if test="cursor != null">AND n.id &lt; #{cursor}</if>
+            <if test="seedNoteId != null">AND n.id &lt;= #{seedNoteId}</if>
+            <if test="orientation == 'LANDSCAPE'">AND nv.video_width &gt; nv.video_height</if>
+            <if test="orientation == 'PORTRAIT'">AND nv.video_width &lt;= nv.video_height</if>
+            ORDER BY n.id DESC
+            LIMIT #{size}
+            </script>
+            """)
+    @Results(id = "videoFeedResultMap", value = {
+            @Result(property = "id",             column = "id"),
+            @Result(property = "title",          column = "title"),
+            @Result(property = "likeCount",      column = "like_count"),
+            @Result(property = "noteType",       column = "note_type"),
+            @Result(property = "coverImage",     column = "cover_image"),
+            @Result(property = "coverWidth",     column = "cover_width"),
+            @Result(property = "coverHeight",    column = "cover_height"),
+            @Result(property = "videoDurationMs", column = "video_duration_ms"),
+            @Result(property = "videoWidth",     column = "video_width"),
+            @Result(property = "videoHeight",    column = "video_height"),
+            @Result(property = "videoPlayUrl",   column = "video_play_url"),
+            @Result(property = "authorId",       column = "author_id"),
+            @Result(property = "authorNickname", column = "author_nickname"),
+            @Result(property = "authorAvatar",   column = "author_avatar")
+    })
+    List<NoteFeedRow> selectVideoFeed(@Param("cursor") Long cursor, @Param("seedNoteId") Long seedNoteId,
+                                      @Param("orientation") String orientation, @Param("size") int size);
 
     /// 增加浏览量
     @Update("UPDATE note SET view_count = view_count + 1 WHERE id = #{id}")
@@ -44,12 +100,17 @@ public interface NoteMapper extends BaseMapper<Note> {
 
     @Select("""
             <script>
-            SELECT n.id, n.title, n.like_count, n.status, n.view_count,
-                   ni.url AS cover_image,
+            SELECT n.id, n.title, n.like_count, n.status, n.view_count, n.note_type,
+                   COALESCE(nv.cover_url, ni.url) AS cover_image,
+                   COALESCE(nv.cover_width, ni.width) AS cover_width,
+                   COALESCE(nv.cover_height, ni.height) AS cover_height,
+                   nv.duration_ms AS video_duration_ms, nv.video_width, nv.video_height,
+                   nv.original_url AS video_play_url,
                    u.id AS author_id, u.nickname AS author_nickname, u.avatar AS author_avatar
             FROM note n
             LEFT JOIN note_image ni ON ni.note_id = n.id
                 AND ni.sort_order = (SELECT MIN(sort_order) FROM note_image WHERE note_id = n.id)
+            LEFT JOIN note_video nv ON nv.note_id = n.id
             LEFT JOIN `user` u ON u.id = n.user_id
             WHERE n.user_id = #{userId} AND n.status = #{statusVal} AND n.deleted = 0
             <if test="cursor != null">AND n.id &lt; #{cursor}</if>
@@ -63,7 +124,14 @@ public interface NoteMapper extends BaseMapper<Note> {
             @Result(property = "likeCount",      column = "like_count"),
             @Result(property = "status",         column = "status"),
             @Result(property = "viewCount",      column = "view_count"),
+            @Result(property = "noteType",       column = "note_type"),
             @Result(property = "coverImage",     column = "cover_image"),
+            @Result(property = "coverWidth",     column = "cover_width"),
+            @Result(property = "coverHeight",    column = "cover_height"),
+            @Result(property = "videoDurationMs", column = "video_duration_ms"),
+            @Result(property = "videoWidth",     column = "video_width"),
+            @Result(property = "videoHeight",    column = "video_height"),
+            @Result(property = "videoPlayUrl",   column = "video_play_url"),
             @Result(property = "authorId",       column = "author_id"),
             @Result(property = "authorNickname", column = "author_nickname"),
             @Result(property = "authorAvatar",   column = "author_avatar")
@@ -72,7 +140,7 @@ public interface NoteMapper extends BaseMapper<Note> {
                                       @Param("cursor") Long cursor, @Param("size") int size);
 
     /**
-     * selectFeed / selectUserNotes 方法返回的扁平化投影对象，
+     * selectFeed / selectVideoFeed / selectUserNotes 等方法返回的扁平化投影对象，
      * 在 Service 层中被转换为 NoteFeedResponse
      */
     @Data
@@ -83,7 +151,16 @@ public interface NoteMapper extends BaseMapper<Note> {
         private Integer status;
         // selectUserNotes 时填充，其他查询为 null
         private Integer viewCount;
+        private Integer noteType;
         private String coverImage;
+        // 封面宽高（客户端上报；图文=第一张图宽高，视频=封面图宽高；历史数据可能为 null）
+        private Integer coverWidth;
+        private Integer coverHeight;
+        // 视频笔记字段（视频行才有值，图文行为 null）
+        private Long videoDurationMs;
+        private Integer videoWidth;
+        private Integer videoHeight;
+        private String videoPlayUrl;
         private Long authorId;
         private String authorNickname;
         private String authorAvatar;
@@ -99,13 +176,18 @@ public interface NoteMapper extends BaseMapper<Note> {
 
     @Select("""
             <script>
-            SELECT nl.id AS cursor_id, n.id, n.title, n.like_count,
-                   ni.url AS cover_image,
+            SELECT nl.id AS cursor_id, n.id, n.title, n.like_count, n.note_type,
+                   COALESCE(nv.cover_url, ni.url) AS cover_image,
+                   COALESCE(nv.cover_width, ni.width) AS cover_width,
+                   COALESCE(nv.cover_height, ni.height) AS cover_height,
+                   nv.duration_ms AS video_duration_ms, nv.video_width, nv.video_height,
+                   nv.original_url AS video_play_url,
                    u.id AS author_id, u.nickname AS author_nickname, u.avatar AS author_avatar
             FROM note_like nl
             JOIN note n ON n.id = nl.note_id AND n.deleted = 0 AND n.status = 1
             LEFT JOIN note_image ni ON ni.note_id = n.id
                 AND ni.sort_order = (SELECT MIN(sort_order) FROM note_image WHERE note_id = n.id)
+            LEFT JOIN note_video nv ON nv.note_id = n.id
             LEFT JOIN `user` u ON u.id = n.user_id
             WHERE nl.user_id = #{userId}
             <if test="cursor != null">AND nl.id &lt; #{cursor}</if>
@@ -118,7 +200,14 @@ public interface NoteMapper extends BaseMapper<Note> {
             @Result(property = "id",             column = "id"),
             @Result(property = "title",          column = "title"),
             @Result(property = "likeCount",      column = "like_count"),
+            @Result(property = "noteType",       column = "note_type"),
             @Result(property = "coverImage",     column = "cover_image"),
+            @Result(property = "coverWidth",     column = "cover_width"),
+            @Result(property = "coverHeight",    column = "cover_height"),
+            @Result(property = "videoDurationMs", column = "video_duration_ms"),
+            @Result(property = "videoWidth",     column = "video_width"),
+            @Result(property = "videoHeight",    column = "video_height"),
+            @Result(property = "videoPlayUrl",   column = "video_play_url"),
             @Result(property = "authorId",       column = "author_id"),
             @Result(property = "authorNickname", column = "author_nickname"),
             @Result(property = "authorAvatar",   column = "author_avatar")
@@ -129,13 +218,18 @@ public interface NoteMapper extends BaseMapper<Note> {
 
     @Select("""
             <script>
-            SELECT nf.id AS cursor_id, n.id, n.title, n.like_count,
-                   ni.url AS cover_image,
+            SELECT nf.id AS cursor_id, n.id, n.title, n.like_count, n.note_type,
+                   COALESCE(nv.cover_url, ni.url) AS cover_image,
+                   COALESCE(nv.cover_width, ni.width) AS cover_width,
+                   COALESCE(nv.cover_height, ni.height) AS cover_height,
+                   nv.duration_ms AS video_duration_ms, nv.video_width, nv.video_height,
+                   nv.original_url AS video_play_url,
                    u.id AS author_id, u.nickname AS author_nickname, u.avatar AS author_avatar
             FROM note_fav nf
             JOIN note n ON n.id = nf.note_id AND n.deleted = 0 AND n.status = 1
             LEFT JOIN note_image ni ON ni.note_id = n.id
                 AND ni.sort_order = (SELECT MIN(sort_order) FROM note_image WHERE note_id = n.id)
+            LEFT JOIN note_video nv ON nv.note_id = n.id
             LEFT JOIN `user` u ON u.id = n.user_id
             WHERE nf.user_id = #{userId}
             <if test="cursor != null">AND nf.id &lt; #{cursor}</if>
@@ -148,7 +242,14 @@ public interface NoteMapper extends BaseMapper<Note> {
             @Result(property = "id",             column = "id"),
             @Result(property = "title",          column = "title"),
             @Result(property = "likeCount",      column = "like_count"),
+            @Result(property = "noteType",       column = "note_type"),
             @Result(property = "coverImage",     column = "cover_image"),
+            @Result(property = "coverWidth",     column = "cover_width"),
+            @Result(property = "coverHeight",    column = "cover_height"),
+            @Result(property = "videoDurationMs", column = "video_duration_ms"),
+            @Result(property = "videoWidth",     column = "video_width"),
+            @Result(property = "videoHeight",    column = "video_height"),
+            @Result(property = "videoPlayUrl",   column = "video_play_url"),
             @Result(property = "authorId",       column = "author_id"),
             @Result(property = "authorNickname", column = "author_nickname"),
             @Result(property = "authorAvatar",   column = "author_avatar")
@@ -166,13 +267,18 @@ public interface NoteMapper extends BaseMapper<Note> {
             <script>
             SELECT CAST(UNIX_TIMESTAMP(nv.create_time) * 1000 AS UNSIGNED) AS cursor_id,
                    nv.create_time AS view_time,
-                   n.id, n.title, n.like_count,
-                   ni.url AS cover_image,
+                   n.id, n.title, n.like_count, n.note_type,
+                   COALESCE(v.cover_url, ni.url) AS cover_image,
+                   COALESCE(v.cover_width, ni.width) AS cover_width,
+                   COALESCE(v.cover_height, ni.height) AS cover_height,
+                   v.duration_ms AS video_duration_ms, v.video_width, v.video_height,
+                   v.original_url AS video_play_url,
                    u.id AS author_id, u.nickname AS author_nickname, u.avatar AS author_avatar
             FROM note_view nv
             JOIN note n ON n.id = nv.note_id AND n.deleted = 0 AND n.status = 1
             LEFT JOIN note_image ni ON ni.note_id = n.id
                 AND ni.sort_order = (SELECT MIN(sort_order) FROM note_image WHERE note_id = n.id)
+            LEFT JOIN note_video v ON v.note_id = n.id
             LEFT JOIN `user` u ON u.id = n.user_id
             WHERE nv.user_id = #{userId}
             <if test="cursor != null">AND nv.create_time &lt; FROM_UNIXTIME(#{cursor} / 1000.0)</if>
@@ -186,7 +292,14 @@ public interface NoteMapper extends BaseMapper<Note> {
             @Result(property = "id",             column = "id"),
             @Result(property = "title",          column = "title"),
             @Result(property = "likeCount",      column = "like_count"),
+            @Result(property = "noteType",       column = "note_type"),
             @Result(property = "coverImage",     column = "cover_image"),
+            @Result(property = "coverWidth",     column = "cover_width"),
+            @Result(property = "coverHeight",    column = "cover_height"),
+            @Result(property = "videoDurationMs", column = "video_duration_ms"),
+            @Result(property = "videoWidth",     column = "video_width"),
+            @Result(property = "videoHeight",    column = "video_height"),
+            @Result(property = "videoPlayUrl",   column = "video_play_url"),
             @Result(property = "authorId",       column = "author_id"),
             @Result(property = "authorNickname", column = "author_nickname"),
             @Result(property = "authorAvatar",   column = "author_avatar")
@@ -203,8 +316,12 @@ public interface NoteMapper extends BaseMapper<Note> {
      */
     @Select("""
             <script>
-            SELECT n.id, n.title, n.like_count,
-                   ni.url AS cover_image,
+            SELECT n.id, n.title, n.like_count, n.note_type,
+                   COALESCE(nv.cover_url, ni.url) AS cover_image,
+                   COALESCE(nv.cover_width, ni.width) AS cover_width,
+                   COALESCE(nv.cover_height, ni.height) AS cover_height,
+                   nv.duration_ms AS video_duration_ms, nv.video_width, nv.video_height,
+                   nv.original_url AS video_play_url,
                    u.id AS author_id, u.nickname AS author_nickname, u.avatar AS author_avatar,
                    UNIX_TIMESTAMP(COALESCE(n.create_time, n.update_time)) * 1000 AS create_time_ms,
                    <choose>
@@ -221,8 +338,10 @@ public interface NoteMapper extends BaseMapper<Note> {
             FROM note n
             LEFT JOIN note_image ni ON ni.note_id = n.id
                 AND ni.sort_order = (SELECT MIN(sort_order) FROM note_image WHERE note_id = n.id)
+            LEFT JOIN note_video nv ON nv.note_id = n.id
             LEFT JOIN `user` u ON u.id = n.user_id AND u.deleted = 0
             WHERE n.status = 1 AND n.deleted = 0
+              <if test="noteTypeFilter != null">AND n.note_type = #{noteTypeFilter}</if>
               <if test="fromTime != null">AND COALESCE(n.create_time, n.update_time) &gt;= #{fromTime}</if>
               AND (
                 <choose>
@@ -284,7 +403,14 @@ public interface NoteMapper extends BaseMapper<Note> {
             @Result(property = "id",             column = "id"),
             @Result(property = "title",          column = "title"),
             @Result(property = "likeCount",      column = "like_count"),
+            @Result(property = "noteType",       column = "note_type"),
             @Result(property = "coverImage",     column = "cover_image"),
+            @Result(property = "coverWidth",     column = "cover_width"),
+            @Result(property = "coverHeight",    column = "cover_height"),
+            @Result(property = "videoDurationMs", column = "video_duration_ms"),
+            @Result(property = "videoWidth",     column = "video_width"),
+            @Result(property = "videoHeight",    column = "video_height"),
+            @Result(property = "videoPlayUrl",   column = "video_play_url"),
             @Result(property = "authorId",       column = "author_id"),
             @Result(property = "authorNickname", column = "author_nickname"),
             @Result(property = "authorAvatar",   column = "author_avatar"),
@@ -296,6 +422,7 @@ public interface NoteMapper extends BaseMapper<Note> {
                                    @Param("today") LocalDate today,
                                    @Param("fromTime") LocalDateTime fromTime,
                                    @Param("sort") String sort,
+                                   @Param("noteTypeFilter") Integer noteTypeFilter,
                                    @Param("cursorScore") Long cursorScore,
                                    @Param("cursorTimeMs") Long cursorTimeMs,
                                    @Param("cursorId") Long cursorId,

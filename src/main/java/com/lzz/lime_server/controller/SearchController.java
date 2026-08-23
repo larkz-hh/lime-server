@@ -24,13 +24,15 @@ public class SearchController {
     private final SearchService searchService;
     private static final Set<String> SORTS = Set.of("composite", "latest", "likes", "comments", "favs");
     private static final Set<String> WITHIN = Set.of("all", "day", "week", "halfYear");
+    private static final Set<String> TYPES = Set.of("all", "image", "video");
 
-    /// 关键词搜索笔记，Cursor 分页；sort 与 within（发布时间范围）可自由组合
+    /// 关键词搜索笔记，Cursor 分页；sort / within（发布时间范围）/ type（笔记类型）可自由组合
     @GetMapping("/notes")
     public Result<CursorPage<NoteFeedResponse>> searchNotes(
             @RequestParam(required = false) String keyword,
             @RequestParam(defaultValue = "composite") String sort,
             @RequestParam(defaultValue = "all") String within,
+            @RequestParam(defaultValue = "all") String type,
             @RequestParam(required = false) String cursor,
             @RequestParam(defaultValue = "10") int size) {
         if (!SORTS.contains(sort)) {
@@ -39,8 +41,11 @@ public class SearchController {
         if (!WITHIN.contains(within)) {
             throw new BusinessException("within 参数非法，可选值：all / day / week / halfYear");
         }
+        if (!TYPES.contains(type)) {
+            throw new BusinessException("type 参数非法，可选值：all / image / video");
+        }
         size = Math.min(size, 50);
-        return Result.success(searchService.searchNotes(keyword, sort, within, cursor, size, currentUserId()));
+        return Result.success(searchService.searchNotes(keyword, sort, within, type, cursor, size, currentUserId()));
     }
 
     /// 搜索用户（昵称/handle 匹配），匹配度优先排序，Cursor 分页

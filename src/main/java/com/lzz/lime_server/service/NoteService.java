@@ -13,11 +13,13 @@ public interface NoteService {
 
     CursorPage<NoteFeedResponse> getFeed(Long cursor, int size, Long userId);
 
+    CursorPage<NoteFeedResponse> getVideoFeed(Long cursor, Long seedNoteId, String orientation, int size, Long userId);
+
     CursorPage<NoteFeedResponse> getUserNotes(Long targetUserId, int statusVal, Long cursor, int size, Long currentUserId);
 
     void likeNote(Long noteId, Long userId);
 
-    NoteDetailResponse getNoteDetail(Long noteId, Long currentUserId);
+    NoteDetailResponse getNoteDetail(Long noteId, Long currentUserId, boolean noView);
 
     void unlikeNote(Long noteId, Long userId);
 

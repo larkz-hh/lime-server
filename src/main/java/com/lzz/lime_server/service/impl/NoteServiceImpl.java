@@ -9,6 +9,7 @@ import com.lzz.lime_server.dto.response.CursorPage;
 import com.lzz.lime_server.dto.response.NoteDetailResponse;
 import com.lzz.lime_server.dto.response.NoteFeedResponse;
 import com.lzz.lime_server.dto.response.NoteResponse;
+import com.lzz.lime_server.dto.response.NoteVideoInfo;
 import com.lzz.lime_server.entity.*;
 import com.lzz.lime_server.mapper.*;
 import com.lzz.lime_server.service.NoteService;
@@ -25,7 +26,8 @@ import java.util.stream.Collectors;
 
 /**
  * 笔记接口实现类
- * <p>负责笔记的发布、更新、信息流获取、点赞、收藏等</p>
+ * <p>负责笔记的发布、信息流获取、视频流、点赞、收藏等。
+ * 视频笔记（noteType=2）与图文笔记共用 note 主表，视频元数据存 note_video。</p>
  */
 @Service
 @RequiredArgsConstructor
@@ -36,6 +38,8 @@ public class NoteServiceImpl implements NoteService {
     private final NoteLikeMapper noteLikeMapper;
     private final NoteFavMapper noteFavMapper;
     private final NoteViewMapper noteViewMapper;
+    private final NoteVideoMapper noteVideoMapper;
+    private final NoteDanmakuMapper noteDanmakuMapper;
     private final UserMapper userMapper;
     private final StringRedisTemplate redisTemplate;
     private static final String LIKE_COUNT_PREFIX = "note:like:";
@@ -43,19 +47,42 @@ public class NoteServiceImpl implements NoteService {
     private static final long   COUNT_TTL_MINUTES = 10;
 
     /**
-     * 发布图文笔记
-     * <p>事务控制:确保笔记主体与图片数据同时成功或同时回滚</p>
+     * 发布笔记（图文 / 视频，按 noteType 区分）。
+     * <p>图文：标题/正文至少一项、图片 1~9 张；视频：video 必填、标题/正文可全空。
+     * 事务控制确保笔记主体与关联数据（图片或视频元数据）同时成功或同时回滚。</p>
      *
      * @param userId  当前登录用户的ID（从JWT中解析获取）
      * @param request 发布笔记的请求参数
      * @return 发布成功后的笔记响应数据
-     * @throws BusinessException 当标题和正文同时为空时抛出业务异常
+     * @throws BusinessException 当类型非法或必填项缺失时抛出业务异常
      */
     @Override
     @Transactional
     public NoteResponse publishNote(Long userId, PublishNoteRequest request) {
+        Integer noteType = request.getNoteType() != null ? request.getNoteType() : Note.TYPE_TEXT;
+        if (noteType != Note.TYPE_TEXT && noteType != Note.TYPE_VIDEO) {
+            throw new BusinessException("noteType 参数非法，可选值：1=图文, 2=视频");
+        }
+        if (noteType == Note.TYPE_VIDEO) {
+            return publishVideoNote(userId, request);
+        }
+        return publishTextNote(userId, request);
+    }
+
+    /**
+     * 发布图文笔记。
+     * <p>校验标题/正文至少一项、图片 1~9 张，插入 note 主表与 note_image。</p>
+     *
+     * @param userId  当前登录用户 ID
+     * @param request 发布请求
+     * @return 发布成功的笔记响应
+     */
+    private NoteResponse publishTextNote(Long userId, PublishNoteRequest request) {
         if (!StringUtils.hasText(request.getTitle()) && !StringUtils.hasText(request.getContent())) {
             throw new BusinessException("标题和正文不能同时为空");
+        }
+        if (request.getImages() == null || request.getImages().isEmpty()) {
+            throw new BusinessException("至少上传一张图片");
         }
 
         // 构建并保存笔记主体信息
@@ -63,6 +90,7 @@ public class NoteServiceImpl implements NoteService {
         note.setUserId(userId);
         note.setTitle(request.getTitle());
         note.setContent(request.getContent());
+        note.setNoteType(Note.TYPE_TEXT);
         note.setStatus(request.getStatus() != null ? request.getStatus() : 1);
         note.setLikeCount(0);
         note.setFavCount(0);
@@ -74,12 +102,55 @@ public class NoteServiceImpl implements NoteService {
             NoteImage img = new NoteImage();
             img.setNoteId(note.getId());// 绑定刚生成的笔记ID
             img.setUrl(item.getUrl());
+            img.setWidth(item.getWidth());// 宽高客户端上报
+            img.setHeight(item.getHeight());
             img.setSortOrder(item.getSortOrder());
             return img;
         }).toList();
         images.forEach(noteImageMapper::insert);// 逐条插入图片
 
-        return toResponse(note, images);
+        return toResponse(note, images, null);
+    }
+
+    /**
+     * 发布视频笔记。
+     * <p>video 必填，标题/正文可全空；创建 note 主表 + note_video 元数据。
+     * 直放模式：transcodeStatus 置为 2（可播），播放地址即原片，不触发转码。</p>
+     *
+     * @param userId  当前登录用户 ID
+     * @param request 发布请求
+     * @return 发布成功的笔记响应
+     */
+    private NoteResponse publishVideoNote(Long userId, PublishNoteRequest request) {
+        PublishNoteRequest.VideoItem video = request.getVideo();
+        if (video == null || !StringUtils.hasText(video.getUrl())) {
+            throw new BusinessException("视频 URL 不能为空");
+        }
+
+        Note note = new Note();
+        note.setUserId(userId);
+        note.setTitle(request.getTitle());
+        note.setContent(request.getContent());
+        note.setNoteType(Note.TYPE_VIDEO);
+        note.setStatus(request.getStatus() != null ? request.getStatus() : 1);
+        note.setLikeCount(0);
+        note.setFavCount(0);
+        note.setViewCount(0);
+        noteMapper.insert(note);
+
+        NoteVideo noteVideo = new NoteVideo();
+        noteVideo.setNoteId(note.getId());
+        noteVideo.setOriginalUrl(video.getUrl());
+        noteVideo.setCoverUrl(video.getCoverUrl());
+        noteVideo.setCoverWidth(video.getCoverWidth());// 封面宽高客户端上报，瀑布流卡片布局用
+        noteVideo.setCoverHeight(video.getCoverHeight());
+        noteVideo.setVideoWidth(video.getWidth());
+        noteVideo.setVideoHeight(video.getHeight());
+        noteVideo.setDurationMs(video.getDurationMs());
+        noteVideo.setTranscodeStatus(2);// 直放模式：可播
+        noteVideoMapper.insert(noteVideo);
+
+        return toResponse(note, List.of(), noteVideo);
     }
 
     /**
@@ -109,8 +180,12 @@ public class NoteServiceImpl implements NoteService {
             item.setId(row.getId());
             item.setTitle(row.getTitle());
             item.setCoverImage(row.getCoverImage());
+            item.setCoverWidth(row.getCoverWidth());
+            item.setCoverHeight(row.getCoverHeight());
             item.setLikeCount(row.getLikeCount());
             item.setStatus(row.getStatus());
+            item.setNoteType(row.getNoteType());
+            item.setVideo(toVideoInfo(row));
             // 浏览量仅本人可见，非本人保持 null（序列化时不输出）
             if (targetUserId.equals(currentUserId)) {
                 item.setViewCount(row.getViewCount());
@@ -158,71 +233,145 @@ public class NoteServiceImpl implements NoteService {
         }// 丢弃多的一条，保留当前页所需的数据
 
         // 将数据库返回的扁平化投影对象转换为面向前端的结构化响应对象
-        List<NoteFeedResponse> items = rows.stream().map(row -> {
-            NoteFeedResponse item = new NoteFeedResponse();
-            item.setId(row.getId());
-            item.setTitle(row.getTitle());
-            item.setCoverImage(row.getCoverImage());
-            item.setLikeCount(row.getLikeCount());
-
-            NoteFeedResponse.AuthorBrief author = new NoteFeedResponse.AuthorBrief();
-            author.setId(row.getAuthorId());
-            author.setNickname(row.getAuthorNickname());
-            author.setAvatar(row.getAuthorAvatar());
-            item.setAuthor(author);
-            return item;
-        }).toList();
-
-        // fix: 批量查询当前用户对这批笔记的点赞状态，一次 IN 查询代替 N 次单条查询
-        if (!items.isEmpty()) {
-            List<Long> noteIds = items.stream().map(NoteFeedResponse::getId).toList();
-            Set<Long> likedNoteIds = noteLikeMapper.selectList(
-                            new LambdaQueryWrapper<NoteLike>()
-                                    .eq(NoteLike::getUserId, userId)
-                                    .in(NoteLike::getNoteId, noteIds))
-                    .stream().map(NoteLike::getNoteId).collect(Collectors.toSet());
-            items.forEach(item -> item.setLiked(likedNoteIds.contains(item.getId())));
-        }
+        List<NoteFeedResponse> items = rows.stream().map(this::toFeedItem).toList();
+        fillLiked(items, userId);
 
         // 还有下一页，将当前页最后一条笔记的 ID 作为下一次请求的游标
         Long nextCursor = hasMore ? items.getLast().getId() : null;
         return CursorPage.of(items, nextCursor, hasMore);
     }
 
+    /**
+     * 获取视频流（独立视频 Tab 与详情页上滑共用），游标分页。
+     * <p>仅返回视频笔记，按 id 倒序（最新在前）；seedNoteId 用于从指定笔记之后开始取，
+     * 保证详情页上滑顺序与进入时的队列一致。每条含 video 信息（playUrl 等），
+     * 一次返回多条即天然的「预加载下一条」数据源。</p>
+     * <p>orientation 可选过滤横竖屏（推荐流全屏横屏会话用）：
+     * LANDSCAPE 只出宽&gt;高的横屏视频，PORTRAIT 只出竖屏，null 不限。</p>
+     *
+     * @param cursor      上一页最后一条视频笔记的 ID，首次传 null
+     * @param seedNoteId  起始锚点笔记 ID（返回 id ≤ 它的视频，含自身），可为 null
+     * @param orientation 横竖屏过滤：LANDSCAPE / PORTRAIT / null（不限）
+     * @param size        每页条数
+     * @param userId      当前登录用户 ID，用于批量填充点赞状态
+     * @return 视频卡片分页结果
+     */
+    @Override
+    public CursorPage<NoteFeedResponse> getVideoFeed(Long cursor, Long seedNoteId, String orientation, int size, Long userId) {
+        // 多查一条判断是否还有下一页
+        List<NoteMapper.NoteFeedRow> rows = noteMapper.selectVideoFeed(cursor, seedNoteId, orientation, size + 1);
+
+        boolean hasMore = rows.size() > size;
+        if (hasMore) rows = rows.subList(0, size);
+
+        List<NoteFeedResponse> items = rows.stream().map(this::toFeedItem).toList();
+        fillLiked(items, userId);
+
+        Long nextCursor = hasMore ? items.getLast().getId() : null;
+        return CursorPage.of(items, nextCursor, hasMore);
+    }
+
+    /**
+     * 将数据库投影行转换为信息流卡片响应（feed 与 video-feed 共用）。
+     *
+     * @param row 查询投影行
+     * @return 卡片响应对象（含作者与视频摘要）
+     */
+    private NoteFeedResponse toFeedItem(NoteMapper.NoteFeedRow row) {
+        NoteFeedResponse item = new NoteFeedResponse();
+        item.setId(row.getId());
+        item.setTitle(row.getTitle());
+        item.setCoverImage(row.getCoverImage());
+        item.setCoverWidth(row.getCoverWidth());
+        item.setCoverHeight(row.getCoverHeight());
+        item.setLikeCount(row.getLikeCount());
+        item.setNoteType(row.getNoteType());
+        item.setVideo(toVideoInfo(row));
+
+        NoteFeedResponse.AuthorBrief author = new NoteFeedResponse.AuthorBrief();
+        author.setId(row.getAuthorId());
+        author.setNickname(row.getAuthorNickname());
+        author.setAvatar(row.getAuthorAvatar());
+        item.setAuthor(author);
+        return item;
+    }
+
+    /**
+     * 批量填充当前用户对这批笔记的点赞状态。
+     * <p>一次 IN 查询代替 N 次单条查询（与历史实现一致）。</p>
+     *
+     * @param items  卡片列表
+     * @param userId 当前登录用户 ID
+     */
+    private void fillLiked(List<NoteFeedResponse> items, Long userId) {
+        if (items.isEmpty()) return;
+        List<Long> noteIds = items.stream().map(NoteFeedResponse::getId).toList();
+        Set<Long> likedNoteIds = noteLikeMapper.selectList(
+                        new LambdaQueryWrapper<NoteLike>()
+                                .eq(NoteLike::getUserId, userId)
+                                .in(NoteLike::getNoteId, noteIds))
+                .stream().map(NoteLike::getNoteId).collect(Collectors.toSet());
+        items.forEach(item -> item.setLiked(likedNoteIds.contains(item.getId())));
+    }
+
+    /**
+     * 由投影行组装嵌套视频信息；图文笔记返回 null（序列化时不输出）。
+     *
+     * @param row 查询投影行
+     * @return 视频信息对象，非视频笔记时为 null
+     */
+    private NoteVideoInfo toVideoInfo(NoteMapper.NoteFeedRow row) {
+        if (row.getNoteType() == null || row.getNoteType() != Note.TYPE_VIDEO) return null;
+        return NoteVideoInfo.of(row.getVideoDurationMs(), row.getVideoWidth(), row.getVideoHeight(),
+                row.getVideoPlayUrl(), null);
+    }
+
 
     /**
      * 构建笔记详情响应对象。
      *
-     * @param note       笔记实体对象，包含标题、内容、状态及时间等基础信息
-     * @param images     笔记关联的图片列表
-     * @param author     笔记作者的用户信息（允许为 null）
-     * @param likeCount  笔记的点赞总数
-     * @param favCount   笔记的收藏总数
-     * @param liked      当前登录用户是否已点赞该笔记
-     * @param favorited  当前登录用户是否已收藏该笔记
+     * @param note         笔记实体对象，包含标题、内容、状态及时间等基础信息
+     * @param images       笔记关联的图片列表
+     * @param author       笔记作者的用户信息（允许为 null）
+     * @param likeCount    笔记的点赞总数
+     * @param favCount     笔记的收藏总数
+     * @param liked        当前登录用户是否已点赞该笔记
+     * @param favorited    当前登录用户是否已收藏该笔记
+     * @param noteVideo    视频元数据（视频笔记才有，图文为 null）
+     * @param danmakuCount 弹幕数（视频笔记有意义，图文为 0）
      * @return 组装完成的笔记详情响应对象
      */
     private NoteDetailResponse buildDetailResponse(Note note, List<NoteImage> images, User author,
                                                    int likeCount, int favCount,
-                                                   boolean liked, boolean favorited) {
+                                                   boolean liked, boolean favorited,
+                                                   NoteVideo noteVideo, int danmakuCount) {
         NoteDetailResponse resp = new NoteDetailResponse();
         resp.setId(note.getId());
         resp.setTitle(note.getTitle());
         resp.setContent(note.getContent());
         resp.setStatus(note.getStatus());
+        resp.setNoteType(note.getNoteType());
         resp.setLikeCount(likeCount);
         resp.setFavCount(favCount);
         resp.setViewCount(note.getViewCount());
         resp.setCommentCount(note.getCommentCount() != null ? note.getCommentCount() : 0);
+        resp.setDanmakuCount(danmakuCount);
         resp.setLiked(liked);
         resp.setFavorited(favorited);
         resp.setCreateTime(note.getCreateTime());
         resp.setUpdateTime(note.getUpdateTime());
 
+        if (noteVideo != null) {
+            resp.setVideo(NoteVideoInfo.of(noteVideo.getDurationMs(), noteVideo.getVideoWidth(),
+                    noteVideo.getVideoHeight(), noteVideo.getOriginalUrl(), noteVideo.getCoverUrl()));
+        }
+
         resp.setImages(images.stream().map(img -> {
             NoteDetailResponse.ImageItem item = new NoteDetailResponse.ImageItem();
             item.setId(img.getId());
             item.setUrl(img.getUrl());
+            item.setWidth(img.getWidth());
+            item.setHeight(img.getHeight());
             item.setSortOrder(img.getSortOrder());
             return item;
         }).toList());
@@ -243,13 +392,16 @@ public class NoteServiceImpl implements NoteService {
      * 获取笔记详情。
      * <p>点赞/收藏计数优先读 Redis（TTL 10 分钟），缓存未命中时从 DB 取值并回填缓存；
      * 写操作（点赞/取消）主动删除 Redis key，保证最终一致性。</p>
+     * <p>noView=true 时跳过「浏览量 +1 与浏览历史写入」，供视频流补水（hydrate）场景使用，
+     * 保证刷视频时滑过的视频不计浏览，只有真正打开详情才算。</p>
      *
      * @param noteId        笔记 ID
      * @param currentUserId 当前登录用户 ID，用于判断 liked / favorited 状态
+     * @param noView        true=不累计浏览量、不写浏览历史（默认 false 与历史行为一致）
      * @return 笔记详情响应，包含完整图文、作者信息、互动计数及当前用户状态
      */
     @Override
-    public NoteDetailResponse getNoteDetail(Long noteId, Long currentUserId) {
+    public NoteDetailResponse getNoteDetail(Long noteId, Long currentUserId, boolean noView) {
         Note note = noteMapper.selectById(noteId);
         if (note == null || note.getStatus() != 1) {
             throw new BusinessException("笔记不存在");
@@ -278,13 +430,25 @@ public class NoteServiceImpl implements NoteService {
                         .eq(NoteFav::getNoteId, noteId)
                         .eq(NoteFav::getUserId, currentUserId)) > 0;
 
-        // 每次详情访问累计浏览量
-        noteMapper.incrementViewCount(noteId);
+        if (!noView) {
+            // 每次详情访问累计浏览量
+            noteMapper.incrementViewCount(noteId);
 
-        // 记录浏览历史,重复浏览同一笔记则更新时间，使其重新出现在历史顶部
-        noteViewMapper.upsertView(currentUserId, noteId);
+            // 记录浏览历史,重复浏览同一笔记则更新时间，使其重新出现在历史顶部
+            noteViewMapper.upsertView(currentUserId, noteId);
+        }
 
-        return buildDetailResponse(note, images, author, likeCount, favCount, liked, favorited);
+        // 视频笔记：加载视频元数据与弹幕数（弹幕独立计数，不计入 commentCount）
+        NoteVideo noteVideo = null;
+        int danmakuCount = 0;
+        if (note.getNoteType() != null && note.getNoteType() == Note.TYPE_VIDEO) {
+            noteVideo = noteVideoMapper.selectOne(new LambdaQueryWrapper<NoteVideo>()
+                    .eq(NoteVideo::getNoteId, noteId));
+            danmakuCount = Math.toIntExact(noteDanmakuMapper.selectCount(
+                    new LambdaQueryWrapper<NoteDanmaku>().eq(NoteDanmaku::getNoteId, noteId)));
+        }
+
+        return buildDetailResponse(note, images, author, likeCount, favCount, liked, favorited, noteVideo, danmakuCount);
     }
 
 
@@ -466,8 +630,12 @@ public class NoteServiceImpl implements NoteService {
             item.setId(row.getId());
             item.setTitle(row.getTitle());
             item.setCoverImage(row.getCoverImage());
+            item.setCoverWidth(row.getCoverWidth());
+            item.setCoverHeight(row.getCoverHeight());
             item.setLikeCount(row.getLikeCount());
             item.setViewTime(row.getViewTime());
+            item.setNoteType(row.getNoteType());
+            item.setVideo(toVideoInfo(row));
             NoteFeedResponse.AuthorBrief author = new NoteFeedResponse.AuthorBrief();
             author.setId(row.getAuthorId());
             author.setNickname(row.getAuthorNickname());
@@ -520,7 +688,11 @@ public class NoteServiceImpl implements NoteService {
             item.setId(row.getId());
             item.setTitle(row.getTitle());
             item.setCoverImage(row.getCoverImage());
+            item.setCoverWidth(row.getCoverWidth());
+            item.setCoverHeight(row.getCoverHeight());
             item.setLikeCount(row.getLikeCount());
+            item.setNoteType(row.getNoteType());
+            item.setVideo(toVideoInfo(row));
             NoteFeedResponse.AuthorBrief author = new NoteFeedResponse.AuthorBrief();
             author.setId(row.getAuthorId());
             author.setNickname(row.getAuthorNickname());
@@ -552,26 +724,34 @@ public class NoteServiceImpl implements NoteService {
     }
 
     /**
-     * 将笔记实体和图片列表转换为前端响应DTO
+     * 将笔记实体、图片列表与视频元数据转换为前端响应DTO
      *
-     * @param note   笔记实体
-     * @param images 笔记关联的图片列表
+     * @param note      笔记实体
+     * @param images    笔记关联的图片列表
+     * @param noteVideo 视频元数据（视频笔记才有，图文为 null）
      * @return 组装好的 NoteResponse 对象
      */
-    private NoteResponse toResponse(Note note, List<NoteImage> images) {
+    private NoteResponse toResponse(Note note, List<NoteImage> images, NoteVideo noteVideo) {
         NoteResponse resp = new NoteResponse();
         resp.setId(note.getId());
         resp.setUserId(note.getUserId());
         resp.setTitle(note.getTitle());
         resp.setContent(note.getContent());
         resp.setStatus(note.getStatus());
+        resp.setNoteType(note.getNoteType());
         resp.setCreateTime(note.getCreateTime());
         resp.setUpdateTime(note.getUpdateTime());
+        if (noteVideo != null) {
+            resp.setVideo(NoteVideoInfo.of(noteVideo.getDurationMs(), noteVideo.getVideoWidth(),
+                    noteVideo.getVideoHeight(), noteVideo.getOriginalUrl(), noteVideo.getCoverUrl()));
+        }
         // 转换图片列表
         resp.setImages(images.stream().map(img -> {
             NoteResponse.ImageItem item = new NoteResponse.ImageItem();
             item.setId(img.getId());
             item.setUrl(img.getUrl());
+            item.setWidth(img.getWidth());
+            item.setHeight(img.getHeight());
             item.setSortOrder(img.getSortOrder());
             return item;
         }).toList());

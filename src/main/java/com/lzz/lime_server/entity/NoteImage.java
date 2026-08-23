@@ -16,6 +16,12 @@ public class NoteImage {
 
     private String url;
 
+    /** 图片宽（客户端上报），可为 null */
+    private Integer width;
+
+    /** 图片高（客户端上报），可为 null */
+    private Integer height;
+
     private Integer sortOrder;
 
     @TableField(fill = FieldFill.INSERT)
