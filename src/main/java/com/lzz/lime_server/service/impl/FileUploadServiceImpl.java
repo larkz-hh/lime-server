@@ -15,7 +15,8 @@ import java.util.UUID;
 /**
  * 文件上传服务实现类
  * <p>
- * 上传头像、背景图、笔记图片
+ * 上传头像、背景图、笔记图片、笔记视频、评论图片与评论语音。
+ * 统一流式直传 MinIO（不落盘、不整包缓冲），返回公网访问 URL。
  * </p>
 
  */
@@ -39,12 +40,16 @@ public class FileUploadServiceImpl implements FileUploadService {
     private static final long MAX_SIZE_5M = 5 * 1024 * 1024L;
     private static final long MAX_SIZE_10M = 10 * 1024 * 1024L;
     private static final long MAX_SIZE_20M = 20 * 1024 * 1024L;
+    private static final long MAX_SIZE_200M = 200 * 1024 * 1024L;
     private static final Set<String> ALLOWED_TYPES = Set.of(
             "image/jpeg", "image/png", "image/webp", "image/gif"
     );
     private static final Set<String> ALLOWED_VOICE_TYPES = Set.of(
             "audio/mpeg", "audio/mp4", "audio/aac", "audio/wav",
             "audio/ogg", "audio/x-m4a", "audio/mp3"
+    );
+    private static final Set<String> ALLOWED_VIDEO_TYPES = Set.of(
+            "video/mp4"
     );
 
     /**
@@ -93,6 +98,22 @@ public class FileUploadServiceImpl implements FileUploadService {
     @Override
     public String uploadNoteImage(MultipartFile file) {
         return doUpload(file, "notes", MAX_SIZE_10M, "笔记图片", ALLOWED_TYPES);
+    }
+
+    /**
+     * 上传笔记视频
+     * <p>
+     * 校验后流式直传 MinIO 的 videos/ 目录（直放模式：原片即播放地址）。
+     * 只收 mp4，上限 200MB；时长/宽高等元数据由客户端采集并在发布时提交。
+     * </p>
+     *
+     * @param file 上传的视频文件
+     * @return 视频的公网访问 URL
+     * @throws BusinessException 当文件为空、格式不合法、超过大小限制或上传失败时抛出
+     */
+    @Override
+    public String uploadNoteVideo(MultipartFile file) {
+        return doUpload(file, "videos", MAX_SIZE_200M, "视频", ALLOWED_VIDEO_TYPES);
     }
 
     /// 上传评论图片（与笔记图片限制相同）

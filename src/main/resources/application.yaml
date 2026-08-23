@@ -36,11 +36,11 @@ spring:
     init:
       mode: always
 
-  # ===== 文件上传大小限制 =====
+  # ===== 文件上传大小限制（视频笔记 200MB） =====
   servlet:
     multipart:
-      max-file-size: 50MB
-      max-request-size: 100MB
+      max-file-size: 200MB
+      max-request-size: 210MB
 
 # ===== MyBatis-Plus =====
 mybatis-plus:

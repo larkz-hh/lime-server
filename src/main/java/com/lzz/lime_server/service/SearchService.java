@@ -9,7 +9,7 @@ import java.util.List;
 
 public interface SearchService {
 
-    CursorPage<NoteFeedResponse> searchNotes(String keyword, String sort, String within, String cursor, int size, Long currentUserId);
+    CursorPage<NoteFeedResponse> searchNotes(String keyword, String sort, String within, String type, String cursor, int size, Long currentUserId);
 
     CursorPage<UserSearchResult> searchUsers(String keyword, String cursor, int size, Long currentUserId);
 
