@@ -4,7 +4,9 @@ spring:
 
   # .env 格式为 KEY=VALUE，与 docker-compose 共用同一份
   config:
-    import: optional:file:.env[.properties]
+    import:
+      - optional:file:.env[.properties]
+      - classpath:prompts.yaml
 
   # ===== 数据源 =====
   datasource:
@@ -42,6 +44,11 @@ spring:
       max-file-size: 200MB
       max-request-size: 210MB
 
+  # ===== MVC 异步请求超时（SSE 流式接口用，需大于 AI 流式总时长） =====
+  mvc:
+    async:
+      request-timeout: 120000
+
 # ===== MyBatis-Plus =====
 mybatis-plus:
   configuration:
@@ -78,6 +85,29 @@ jwt:
   secret: ${JWT_SECRET}
   expire: 7200          # access token 有效期，单位秒（2小时）
   refresh-expire: 604800 # refresh token 有效期，单位秒（7天）
+
+# ===== AI 大模型（OpenAI 兼容协议，默认 DeepSeek） =====
+ai:
+  # 服务地址不带末尾斜杠；换通义/Kimi/Ollama 等改这里即可
+  base-url: ${AI_BASE_URL:https://api.deepseek.com}
+  # API Key 在 .env 的 AI_API_KEY 配置
+  api-key: ${AI_API_KEY:}
+  model: ${AI_MODEL:deepseek-v4-flash}
+  vision-model: ${AI_VISION_MODEL:deepseek-v4-flash-vision-exp}
+  connect-timeout-seconds: 5
+  read-timeout-seconds: 90
+  # 限流：写作/聊天每用户每分钟 5 次、每天 50 次
+  rate-limit-per-minute: 5
+  rate-limit-per-day: 50
+  # 翻译限流（短文本、频率高，单独放宽）
+  translate-rate-limit-per-minute: 10
+  translate-rate-limit-per-day: 100
+  chat-context-max-messages: 20
+  # 滚动摘要：未压缩消息超过 30 条时，把最早最多 10 条压成摘要（压缩后至少保留 20 条原文）
+  summarize-trigger: 30
+  summarize-batch: 10
+  max-message-length: 2000
+  max-images: 4
 
 server:
   port: 8080
