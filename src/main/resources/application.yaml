@@ -117,6 +117,10 @@ ai:
   light-base-url: ${AI_LIGHT_BASE_URL:}
   light-api-key: ${AI_LIGHT_API_KEY:}
   light-model: ${AI_LIGHT_MODEL:glm-4.7-flash}
+  # Dots 模型
+  dots-base-url: ${AI_DOTS_BASE_URL:}
+  dots-api-key: ${AI_DOTS_API_KEY:}
+  dots-enable-thinking: ${AI_DOTS_ENABLE_THINKING:false}
 
 server:
   port: 8080

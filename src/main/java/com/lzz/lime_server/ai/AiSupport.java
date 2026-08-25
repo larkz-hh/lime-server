@@ -47,7 +47,7 @@ public class AiSupport {
         AiModelInfo info = AiModelCatalog.find(requestedModel)
                 .orElseThrow(() -> new BusinessException("不支持的模型：" + requestedModel));
         if (needVision && !info.isSupportsVision()) {
-            // 带图场景自动升级为视觉模型（视觉按文本价格计费，无额外成本）
+            // 带图场景自动升级为视觉模型
             AiModelInfo vision = AiModelCatalog.find(properties.getVisionModel()).orElse(null);
             if (vision == null || !vision.isSupportsVision()) {
                 throw new BusinessException("视觉模型未在支持列表内，请检查 AI_VISION_MODEL 配置");
@@ -58,12 +58,27 @@ public class AiSupport {
     }
 
     private AiModelSpec buildSpec(String model, boolean supportsVision) {
-        return AiModelSpec.builder()
-                .baseUrl(properties.getBaseUrl())
-                .apiKey(properties.getApiKey())
+        AiModelSpec.AiModelSpecBuilder builder = AiModelSpec.builder()
                 .model(model)
-                .supportsVision(supportsVision)
-                .build();
+                .supportsVision(supportsVision);
+        if (isDotsModel(model)) {
+            builder.baseUrl(properties.getDotsBaseUrl())
+                    .apiKey(properties.getDotsApiKey())
+                    .authType("api-key")
+                    .pathPrefix("/v1")
+                    .enableThinking(properties.isDotsEnableThinking());
+        } else {
+            builder.baseUrl(properties.getBaseUrl())
+                    .apiKey(properties.getApiKey())
+                    .authType("bearer")
+                    .pathPrefix("");
+        }
+        return builder.build();
+    }
+
+    /** 判断是否 Dots 模型（走独立地址与 api-key 认证） */
+    private boolean isDotsModel(String model) {
+        return model != null && model.startsWith("dots");
     }
 
     /**

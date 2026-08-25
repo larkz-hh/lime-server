@@ -72,4 +72,13 @@ public class AiProperties {
 
     /** 轻量任务模型名 */
     private String lightModel = "glm-4.7-flash";
+
+    /** Dots 模型 API 地址 */
+    private String dotsBaseUrl = "";
+
+    /** Dots 模型 API Key */
+    private String dotsApiKey = "";
+
+    /** Dots 是否启用深度思考 */
+    private boolean dotsEnableThinking = false;
 }

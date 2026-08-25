@@ -111,19 +111,28 @@ public class OpenAiCompatibleProvider implements AiProvider {
                 }
             }
         }
+        if (spec.getEnableThinking() != null) {
+            ObjectNode kwargs = body.putObject("chat_template_kwargs");
+            kwargs.put("enable_thinking", spec.getEnableThinking());
+        }
         String json;
         try {
             json = objectMapper.writeValueAsString(body);
         } catch (Exception e) {
             throw new BusinessException("AI 请求组装失败");
         }
-        return HttpRequest.newBuilder()
-                .uri(URI.create(trimTrailingSlash(spec.getBaseUrl()) + "/chat/completions"))
+        String pathPrefix = spec.getPathPrefix() == null ? "" : spec.getPathPrefix();
+        HttpRequest.Builder builder = HttpRequest.newBuilder()
+                .uri(URI.create(trimTrailingSlash(spec.getBaseUrl()) + pathPrefix + "/chat/completions"))
                 .timeout(Duration.ofSeconds(properties.getReadTimeoutSeconds()))
-                .header("Authorization", "Bearer " + spec.getApiKey())
                 .header("Content-Type", "application/json")
-                .POST(HttpRequest.BodyPublishers.ofString(json))
-                .build();
+                .POST(HttpRequest.BodyPublishers.ofString(json));
+        if ("api-key".equals(spec.getAuthType())) {
+            builder.header("api-key", spec.getApiKey());
+        } else {
+            builder.header("Authorization", "Bearer " + spec.getApiKey());
+        }
+        return builder.build();
     }
 
     // ===== 响应解析 =====
