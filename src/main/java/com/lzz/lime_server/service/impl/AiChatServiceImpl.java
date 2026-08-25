@@ -113,6 +113,9 @@ public class AiChatServiceImpl implements AiChatService {
             assistant.setContent(fullText);
             messageMapper.insert(assistant);
 
+            // 消息数达到阈值时，异步生成简短标题
+            maybeSummarizeTitleAsync(conversationId);
+
             // 刷新会话更新时间
             AiConversation update = new AiConversation();
             update.setId(conversationId);
@@ -278,12 +281,7 @@ public class AiChatServiceImpl implements AiChatService {
                     .replace("{existingSummary}", existingSummary)
                     .replace("{dialogue}", dialogue);
         }
-        AiModelSpec spec = AiModelSpec.builder()
-                .baseUrl(properties.getBaseUrl())
-                .apiKey(properties.getApiKey())
-                .model(properties.getModel())
-                .supportsVision(false)
-                .build();
+        AiModelSpec spec = aiSupport.resolveLightSpec();
         AiResponse response = aiProvider.chat(spec, List.of(
                 ChatMessage.builder().role("user").content(instruction).build()));
         String content = response.getContent() == null ? "" : response.getContent().trim();
@@ -291,6 +289,62 @@ public class AiChatServiceImpl implements AiChatService {
             throw new BusinessException("摘要生成为空");
         }
         return content;
+    }
+
+    /**
+     * 回复完成后异步让 AI 判断是否需要更新会话标题。
+     */
+    private void maybeSummarizeTitleAsync(Long conversationId) {
+        Thread.ofVirtual().name("ai-title").start(() -> summarizeTitle(conversationId));
+    }
+
+    /**
+     * 用轻量模型判断会话标题是否需要更新（≤ titleMaxLength 字），失败不影响主流程。
+     */
+    private void summarizeTitle(Long conversationId) {
+        try {
+            AiConversation conversation = conversationMapper.selectById(conversationId);
+            if (conversation == null) {
+                return;
+            }
+            List<AiMessage> recent = messageMapper.selectList(new LambdaQueryWrapper<AiMessage>()
+                    .eq(AiMessage::getConversationId, conversationId)
+                    .orderByAsc(AiMessage::getId)
+                    .last("LIMIT 8"));
+            if (recent.isEmpty()) {
+                return;
+            }
+            StringBuilder dialogue = new StringBuilder();
+            for (AiMessage m : recent) {
+                dialogue.append(m.getRole()).append(": ").append(truncate(m.getContent(), 200)).append("\n");
+            }
+            String currentTitle = conversation.getTitle() == null || conversation.getTitle().isBlank()
+                    ? "（暂无）" : conversation.getTitle();
+            String instruction = prompts.getSummarizeTitle()
+                    .replace("{currentTitle}", currentTitle)
+                    .replace("{dialogue}", dialogue);
+            AiModelSpec spec = aiSupport.resolveLightSpec();
+            AiResponse response = aiProvider.chat(spec, List.of(
+                    ChatMessage.builder().role("user").content(instruction).build()));
+            String result = response.getContent() == null ? "" : response.getContent().trim();
+            if (result.isBlank() || "不变".equals(result)) {
+                return;
+            }
+            result = result.replaceAll("[\"“”「」『』《》]", "").replaceAll("[。.]+$", "").trim();
+            if (result.length() > properties.getTitleMaxLength()) {
+                result = result.substring(0, properties.getTitleMaxLength());
+            }
+            if (result.isBlank()) {
+                return;
+            }
+            AiConversation update = new AiConversation();
+            update.setId(conversationId);
+            update.setTitle(result);
+            conversationMapper.updateById(update);
+            log.info("会话 {} 标题已更新：{}", conversationId, result);
+        } catch (Exception e) {
+            log.warn("会话 {} 标题判断失败", conversationId, e);
+        }
     }
 
     private AiConversation requireOwnConversation(Long userId, Long conversationId) {
@@ -312,9 +366,10 @@ public class AiChatServiceImpl implements AiChatService {
         Collections.reverse(recent);
         List<ChatMessage> out = new ArrayList<>();
         String summary = conversation.getSummary();
+        String basePrompt = prompts.getChatSystem() + "\n" + prompts.getSafety();
         String systemPrompt = (summary == null || summary.isBlank())
-                ? prompts.getChatSystem()
-                : prompts.getChatSystem() + "\n\n【历史对话摘要】（更早的对话已压缩为摘要）\n" + summary;
+                ? basePrompt
+                : basePrompt + "\n\n【历史对话摘要】（更早的对话已压缩为摘要）\n" + summary;
         out.add(ChatMessage.builder().role("system").content(systemPrompt).build());
         for (AiMessage m : recent) {
             // 引用笔记的消息，在原文前插入一条 system 引用消息（文字快照）

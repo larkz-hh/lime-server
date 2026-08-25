@@ -67,6 +67,21 @@ public class AiSupport {
     }
 
     /**
+     * 轻量任务专用模型；未配置 light 模型时回退到主文本模型。
+     */
+    public AiModelSpec resolveLightSpec() {
+        if (properties.getLightBaseUrl() == null || properties.getLightBaseUrl().isBlank()) {
+            return buildSpec(properties.getModel(), false);
+        }
+        return AiModelSpec.builder()
+                .baseUrl(properties.getLightBaseUrl())
+                .apiKey(properties.getLightApiKey())
+                .model(properties.getLightModel())
+                .supportsVision(false)
+                .build();
+    }
+
+    /**
      * 启动一次 SSE 流式调用并立即返回 SseEmitter，实际请求在虚拟线程中执行。
      * <p>doneEventBuilder 在流正常结束、拿到全文后回调（用于落库等），
      * 返回 done 事件的 data 字符串；返回 null 则不发送 done 事件直接结束。</p>

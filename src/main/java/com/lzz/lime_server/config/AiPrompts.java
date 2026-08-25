@@ -39,4 +39,10 @@ public class AiPrompts {
 
     /** 翻译，占位符 {targetLang}、{sourceLangHint} */
     private String translate;
+
+    /** 会话标题总结，占位符 {dialogue} */
+    private String summarizeTitle;
+
+    /** 通用安全约束（拼接到生成类提示词） */
+    private String safety;
 }

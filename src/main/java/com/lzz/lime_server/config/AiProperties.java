@@ -52,6 +52,9 @@ public class AiProperties {
     /** 每次压缩的消息条数（压缩后至少保留 chatContextMaxMessages 条原文） */
     private int summarizeBatch = 10;
 
+    /** AI 总结会话标题的最大字数 */
+    private int titleMaxLength = 15;
+
     /** 单次输入最大字符数 */
     private int maxMessageLength = 2000;
 
@@ -60,4 +63,13 @@ public class AiProperties {
 
     /** 是否把图片转为 base64 内联传给模型 */
     private boolean imagesAsBase64 = false;
+
+    /** 轻量任务（标题总结/摘要/翻译）API 地址，留空则复用主模型 */
+    private String lightBaseUrl = "";
+
+    /** 轻量任务 API Key */
+    private String lightApiKey = "";
+
+    /** 轻量任务模型名 */
+    private String lightModel = "glm-4.7-flash";
 }

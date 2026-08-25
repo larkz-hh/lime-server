@@ -92,8 +92,10 @@ public class AiServiceImpl implements AiService {
         rateLimiter.check(userId, "translate",
                 properties.getTranslateRateLimitPerMinute(), properties.getTranslateRateLimitPerDay());
 
-        // 翻译走纯文本模型
-        AiModelSpec spec = aiSupport.resolveSpec(request.getModel(), false);
+        // 翻译默认走免费轻量模型；用户显式指定 model 时走主模型
+        AiModelSpec spec = (request.getModel() == null || request.getModel().isBlank())
+                ? aiSupport.resolveLightSpec()
+                : aiSupport.resolveSpec(request.getModel(), false);
 
         String sourceLangHint = (request.getSourceLang() == null || request.getSourceLang().isBlank())
                 ? "源语言请自动检测。"
@@ -126,7 +128,7 @@ public class AiServiceImpl implements AiService {
             default -> throw new BusinessException("action 非法");
         };
         String safe = content == null ? "" : content;
-        String text = instruction + "\n\n<data>\n" + safe + "\n</data>";
+        String text = instruction + "\n" + prompts.getSafety() + "\n\n<data>\n" + safe + "\n</data>";
         return ChatMessage.builder().role("user").content(text).imageUrls(images).build();
     }
 }
