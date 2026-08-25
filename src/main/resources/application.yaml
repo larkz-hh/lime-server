@@ -108,6 +108,9 @@ ai:
   summarize-batch: 10
   max-message-length: 2000
   max-images: 4
+  # 本地开发 true：后端从内网 MinIO 下载图片转 base64 给 AI
+  # 生产 false 传公网 URL
+  images-as-base64: ${AI_IMAGES_AS_BASE64:false}
 
 server:
   port: 8080

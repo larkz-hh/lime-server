@@ -57,4 +57,7 @@ public class AiProperties {
 
     /** 写作辅助/聊天单次携带的最大图片数 */
     private int maxImages = 4;
+
+    /** 是否把图片转为 base64 内联传给模型 */
+    private boolean imagesAsBase64 = false;
 }

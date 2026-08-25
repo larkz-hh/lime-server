@@ -31,6 +31,7 @@ public class OpenAiCompatibleProvider implements AiProvider {
 
     private final AiProperties properties;
     private final ObjectMapper objectMapper;
+    private final AiImageResolver imageResolver;
 
     private HttpClient httpClient;
 
@@ -106,7 +107,7 @@ public class OpenAiCompatibleProvider implements AiProvider {
                     ObjectNode imagePart = content.addObject();
                     imagePart.put("type", "image_url");
                     ObjectNode imageUrl = imagePart.putObject("image_url");
-                    imageUrl.put("url", url);
+                    imageUrl.put("url", imageResolver.resolve(url));
                 }
             }
         }
