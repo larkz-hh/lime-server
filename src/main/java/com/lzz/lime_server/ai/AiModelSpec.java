@@ -3,6 +3,7 @@ package com.lzz.lime_server.ai;
 import lombok.Builder;
 import lombok.Data;
 
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -38,4 +39,7 @@ public class AiModelSpec {
 
     /** 额外请求体参数（thinking 开关等），可空 */
     private Map<String, Object> extraBody;
+
+    /** 工具声明列表,可空 */
+    private List<Map<String, Object>> tools;
 }

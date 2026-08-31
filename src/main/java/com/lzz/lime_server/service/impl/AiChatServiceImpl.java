@@ -3,16 +3,20 @@ package com.lzz.lime_server.service.impl;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.lzz.lime_server.ai.AiModelSpec;
 import com.lzz.lime_server.ai.AiProvider;
 import com.lzz.lime_server.ai.AiRateLimiter;
 import com.lzz.lime_server.ai.AiResponse;
+import com.lzz.lime_server.ai.AiStreamCallback;
 import com.lzz.lime_server.ai.AiSupport;
+import com.lzz.lime_server.ai.AiToolCall;
 import com.lzz.lime_server.ai.ChatMessage;
 import com.lzz.lime_server.ai.NoteContextLoader;
 import com.lzz.lime_server.ai.NoteSnapshot;
+import com.lzz.lime_server.ai.WeatherToolService;
 import com.lzz.lime_server.common.exception.BusinessException;
 import com.lzz.lime_server.config.AiPrompts;
 import com.lzz.lime_server.config.AiProperties;
@@ -35,7 +39,9 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.function.Consumer;
+import java.util.function.Function;
 
 @Slf4j
 @Service
@@ -45,12 +51,31 @@ public class AiChatServiceImpl implements AiChatService {
     /** 摘要压缩全局锁，同一时刻只做一个会话的压缩 */
     private static final Object SUMMARIZE_LOCK = new Object();
 
+    /** 天气工具声明 */
+    private static final List<Map<String, Object>> WEATHER_TOOLS = List.of(
+            Map.of(
+                    "type", "function",
+                    "function", Map.of(
+                            "name", "get_weather",
+                            "description", "查询指定地点的实时天气。用户询问天气、气温、下雨、湿度等情况时调用。",
+                            "parameters", Map.of(
+                                    "type", "object",
+                                    "properties", Map.of(
+                                            "location", Map.of("type", "string", "description", "城市或地点名称，如 北京、上海、杭州")
+                                    ),
+                                    "required", List.of("location")
+                            )
+                    )
+            )
+    );
+
     private final AiProperties properties;
     private final AiPrompts prompts;
     private final AiSupport aiSupport;
     private final AiRateLimiter rateLimiter;
     private final AiProvider aiProvider;
     private final NoteContextLoader noteContextLoader;
+    private final WeatherToolService weatherToolService;
     private final AiConversationMapper conversationMapper;
     private final AiMessageMapper messageMapper;
     private final ObjectMapper objectMapper;
@@ -147,7 +172,7 @@ public class AiChatServiceImpl implements AiChatService {
                     .set(AiMessage::getStatus, "failed"));
         };
 
-        return aiSupport.startStream(spec, context, fullText -> {
+        return startChatStream(spec, context, fullText -> {
             // 完成：仅当仍在 streaming 时写入全文并标记完成；已被打断(stopped)则不覆盖、不推 done
             int updated = messageMapper.update(null, new LambdaUpdateWrapper<AiMessage>()
                     .eq(AiMessage::getId, assistantId)
@@ -175,6 +200,173 @@ public class AiChatServiceImpl implements AiChatService {
             done.put("model", spec.getModel());
             return done.toString();
         }, onDelta, onError);
+    }
+
+    // ===== 工具调用（Function Calling） =====
+
+    /** 带工具声明的 spec 副本（当前只挂天气工具） */
+    private AiModelSpec withTools(AiModelSpec spec) {
+        return AiModelSpec.builder()
+                .baseUrl(spec.getBaseUrl())
+                .apiKey(spec.getApiKey())
+                .model(spec.getModel())
+                .supportsVision(spec.isSupportsVision())
+                .authType(spec.getAuthType())
+                .pathPrefix(spec.getPathPrefix())
+                .enableThinking(spec.getEnableThinking())
+                .extraBody(spec.getExtraBody())
+                .tools(WEATHER_TOOLS)
+                .build();
+    }
+
+    /**
+     * 聊天流式入口：先让模型判断是否需要工具（非流式快速判断），
+     * 需要则执行工具后继续流式输出最终回答；不需要则直接用第一轮结果。
+     */
+    private SseEmitter startChatStream(AiModelSpec spec, List<ChatMessage> context,
+                                       Function<String, String> doneEventBuilder,
+                                       Consumer<String> onDelta, Consumer<String> onError) {
+        SseEmitter emitter = new SseEmitter((properties.getReadTimeoutSeconds() + 15) * 1000L);
+        Thread.ofVirtual().name("ai-chat").start(() -> {
+            try {
+                AiResponse first = aiProvider.chat(withTools(spec), context);
+                List<AiToolCall> calls = first.getToolCalls();
+                if (calls != null && !calls.isEmpty()) {
+                    // 模型要调工具：先通知 App，再执行工具，之后继续流式
+                    for (AiToolCall tc : calls) {
+                        emitter.send(SseEmitter.event().data(toolEvent(tc.getName())));
+                    }
+                    List<ChatMessage> toolMessages = new ArrayList<>(context);
+                    toolMessages.add(ChatMessage.builder()
+                            .role("assistant")
+                            .content(first.getContent() == null ? "" : first.getContent())
+                            .toolCalls(calls)
+                            .build());
+                    for (AiToolCall tc : calls) {
+                        toolMessages.add(ChatMessage.builder()
+                                .role("tool")
+                                .toolCallId(tc.getId())
+                                .content(executeTool(tc))
+                                .build());
+                    }
+                    streamToEmitter(emitter, spec, toolMessages, doneEventBuilder, onDelta, onError);
+                } else {
+                    // 无需工具：第一轮结果即为最终回答
+                    String answer = first.getContent() == null ? "" : first.getContent();
+                    String doneData = doneEventBuilder.apply(answer);
+                    if (!answer.isEmpty()) {
+                        emitter.send(SseEmitter.event().data(deltaEvent(answer)));
+                    }
+                    if (doneData != null) {
+                        emitter.send(SseEmitter.event().data(doneData));
+                    }
+                    emitter.complete();
+                }
+            } catch (Exception e) {
+                log.error("AI 聊天工具轮次失败", e);
+                try {
+                    onError.accept("AI 服务暂时不可用，请稍后重试");
+                } catch (Exception ignored) {
+                }
+                try {
+                    emitter.send(SseEmitter.event().data(errorEvent("AI 服务暂时不可用，请稍后重试")));
+                } catch (Exception ignored) {
+                }
+                emitter.complete();
+            }
+        });
+        return emitter;
+    }
+
+    /** 在既有 emitter 上流式输出模型回复（工具轮次之后的最终回答） */
+    private void streamToEmitter(SseEmitter emitter, AiModelSpec spec, List<ChatMessage> messages,
+                                 Function<String, String> doneEventBuilder,
+                                 Consumer<String> onDelta, Consumer<String> onError) {
+        StringBuilder full = new StringBuilder();
+        aiProvider.streamChat(spec, messages, new AiStreamCallback() {
+            @Override
+            public void onDelta(String text) {
+                full.append(text);
+                try {
+                    emitter.send(SseEmitter.event().data(deltaEvent(text)));
+                    if (onDelta != null) {
+                        onDelta.accept(text);
+                    }
+                } catch (Exception e) {
+                    log.debug("SSE 发送失败（客户端可能已断开）：{}", e.getMessage());
+                }
+            }
+
+            @Override
+            public void onComplete() {
+                try {
+                    if (doneEventBuilder != null) {
+                        String data = doneEventBuilder.apply(full.toString());
+                        if (data != null) {
+                            emitter.send(SseEmitter.event().data(data));
+                        }
+                    }
+                    emitter.complete();
+                } catch (Exception e) {
+                    log.error("AI 流式收尾失败", e);
+                }
+            }
+
+            @Override
+            public void onError(String message) {
+                try {
+                    if (onError != null) {
+                        onError.accept(message);
+                    }
+                    emitter.send(SseEmitter.event().data(errorEvent(message)));
+                } catch (Exception ignored) {
+                }
+                emitter.complete();
+            }
+        });
+    }
+
+    /** 执行模型请求的工具调用 */
+    private String executeTool(AiToolCall toolCall) {
+        if ("get_weather".equals(toolCall.getName())) {
+            return weatherToolService.fetchWeather(parseLocation(toolCall.getArguments()));
+        }
+        return "未知工具：" + toolCall.getName();
+    }
+
+    /** 从工具参数 JSON 中解析 location */
+    private String parseLocation(String arguments) {
+        if (arguments == null || arguments.isBlank()) {
+            return null;
+        }
+        try {
+            JsonNode node = objectMapper.readTree(arguments);
+            String location = node.path("location").asText("");
+            return location.isBlank() ? null : location;
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private String deltaEvent(String text) {
+        ObjectNode node = objectMapper.createObjectNode();
+        node.put("type", "delta");
+        node.put("content", text);
+        return node.toString();
+    }
+
+    private String errorEvent(String message) {
+        ObjectNode node = objectMapper.createObjectNode();
+        node.put("type", "error");
+        node.put("message", message);
+        return node.toString();
+    }
+
+    private String toolEvent(String name) {
+        ObjectNode node = objectMapper.createObjectNode();
+        node.put("type", "tool");
+        node.put("name", name);
+        return node.toString();
     }
 
     @Override

@@ -9,6 +9,7 @@ services:
     env_file:
       - .env
     environment:
+      TZ: Asia/Shanghai
       MYSQL_HOST: lime-mysql
       REDIS_HOST: lime-redis
       MINIO_ENDPOINT: http://lime-minio:9000

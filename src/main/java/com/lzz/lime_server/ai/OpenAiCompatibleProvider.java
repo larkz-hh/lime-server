@@ -16,6 +16,7 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Stream;
@@ -93,11 +94,32 @@ public class OpenAiCompatibleProvider implements AiProvider {
         for (ChatMessage m : messages) {
             ObjectNode msg = msgs.addObject();
             msg.put("role", m.getRole());
+            if ("tool".equals(m.getRole())) {
+                // 工具结果消息
+                msg.put("content", m.getContent() == null ? "" : m.getContent());
+                if (m.getToolCallId() != null) {
+                    msg.put("tool_call_id", m.getToolCallId());
+                }
+                continue;
+            }
+            if (m.getToolCalls() != null && !m.getToolCalls().isEmpty()) {
+                // assistant 回传工具调用
+                msg.put("content", m.getContent() == null ? "" : m.getContent());
+                ArrayNode tcs = msg.putArray("tool_calls");
+                for (AiToolCall tc : m.getToolCalls()) {
+                    ObjectNode tcNode = tcs.addObject();
+                    tcNode.put("id", tc.getId());
+                    tcNode.put("type", "function");
+                    ObjectNode fn = tcNode.putObject("function");
+                    fn.put("name", tc.getName());
+                    fn.put("arguments", tc.getArguments());
+                }
+                continue;
+            }
             List<String> images = m.getImageUrls();
             if (images == null || images.isEmpty()) {
                 msg.put("content", m.getContent() == null ? "" : m.getContent());
             } else {
-                // 多模态：content 为数组 [{"type":"text",...},{"type":"image_url",...}]
                 ArrayNode content = msg.putArray("content");
                 if (m.getContent() != null && !m.getContent().isEmpty()) {
                     ObjectNode textPart = content.addObject();
@@ -121,6 +143,9 @@ public class OpenAiCompatibleProvider implements AiProvider {
             for (Map.Entry<String, Object> entry : extraBody.entrySet()) {
                 body.set(entry.getKey(), objectMapper.valueToTree(entry.getValue()));
             }
+        }
+        if (spec.getTools() != null && !spec.getTools().isEmpty()) {
+            body.set("tools", objectMapper.valueToTree(spec.getTools()));
         }
         String json;
         try {
@@ -150,12 +175,26 @@ public class OpenAiCompatibleProvider implements AiProvider {
             throw new BusinessException(extractErrorMessage(body));
         }
         JsonNode root = objectMapper.readTree(body);
-        String content = root.path("choices").path(0).path("message").path("content").asText("");
+        JsonNode message = root.path("choices").path(0).path("message");
+        String content = message.path("content").asText("");
+        List<AiToolCall> toolCalls = null;
+        JsonNode toolCallsNode = message.path("tool_calls");
+        if (toolCallsNode.isArray() && !toolCallsNode.isEmpty()) {
+            toolCalls = new ArrayList<>();
+            for (JsonNode tc : toolCallsNode) {
+                toolCalls.add(new AiToolCall(
+                        tc.path("id").asText(""),
+                        tc.path("function").path("name").asText(""),
+                        tc.path("function").path("arguments").asText("")
+                ));
+            }
+        }
         JsonNode usage = root.path("usage");
         long prompt = usage.path("prompt_tokens").asLong(-1);
         long completion = usage.path("completion_tokens").asLong(-1);
         return AiResponse.builder()
                 .content(content)
+                .toolCalls(toolCalls)
                 .promptTokens(prompt)
                 .completionTokens(completion)
                 .build();
