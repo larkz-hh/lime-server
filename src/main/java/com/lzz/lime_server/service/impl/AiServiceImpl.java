@@ -81,7 +81,7 @@ public class AiServiceImpl implements AiService {
         return aiSupport.startStream(spec, List.of(prompt), fullText -> {
             ObjectNode done = objectMapper.createObjectNode();
             done.put("type", "done");
-            done.put("content", fullText);
+            done.put("content", stripDataTags(fullText));
             done.put("model", spec.getModel());
             return done.toString();
         });
@@ -92,10 +92,15 @@ public class AiServiceImpl implements AiService {
         rateLimiter.check(userId, "translate",
                 properties.getTranslateRateLimitPerMinute(), properties.getTranslateRateLimitPerDay());
 
-        // 翻译默认走免费轻量模型；用户显式指定 model 时走主模型
-        AiModelSpec spec = (request.getModel() == null || request.getModel().isBlank())
-                ? aiSupport.resolveLightSpec()
-                : aiSupport.resolveSpec(request.getModel(), false);
+        // 翻译默认走配置翻译模型
+        AiModelSpec spec;
+        if (request.getModel() != null && !request.getModel().isBlank()) {
+            spec = aiSupport.resolveSpec(request.getModel(), false);
+        } else if (properties.getTranslateModel() != null && !properties.getTranslateModel().isBlank()) {
+            spec = aiSupport.resolveSpec(properties.getTranslateModel(), false);
+        } else {
+            spec = aiSupport.resolveLightSpec();
+        }
 
         String sourceLangHint = (request.getSourceLang() == null || request.getSourceLang().isBlank())
                 ? "源语言请自动检测。"
@@ -109,7 +114,7 @@ public class AiServiceImpl implements AiService {
                 ChatMessage.builder().role("user").content(text).build()));
 
         TranslateResponse out = new TranslateResponse();
-        out.setTranslatedText(response.getContent());
+        out.setTranslatedText(stripDataTags(response.getContent()));
         out.setTargetLang(request.getTargetLang());
         out.setSourceLang(request.getSourceLang());
         return out;
@@ -130,5 +135,11 @@ public class AiServiceImpl implements AiService {
         String safe = content == null ? "" : content;
         String text = instruction + "\n" + prompts.getSafety() + "\n\n<data>\n" + safe + "\n</data>";
         return ChatMessage.builder().role("user").content(text).imageUrls(images).build();
+    }
+
+    /// 剥掉<data> 标签
+    private String stripDataTags(String text) {
+        if (text == null) return null;
+        return text.replace("<data>", "").replace("</data>", "").trim();
     }
 }

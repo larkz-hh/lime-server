@@ -121,6 +121,8 @@ ai:
   dots-base-url: ${AI_DOTS_BASE_URL:}
   dots-api-key: ${AI_DOTS_API_KEY:}
   dots-enable-thinking: ${AI_DOTS_ENABLE_THINKING:false}
+  # 翻译默认模型
+  translate-model: ${AI_TRANSLATE_MODEL:dots3-note-prev}
 
 server:
   port: 8080

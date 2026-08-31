@@ -12,6 +12,9 @@ public class AiConversation {
     @TableId(type = IdType.AUTO)
     private Long id;
 
+    /** 客户端生成的会话业务键 */
+    private String clientId;
+
     private Long userId;
 
     /** 会话标题（首条消息截断） */

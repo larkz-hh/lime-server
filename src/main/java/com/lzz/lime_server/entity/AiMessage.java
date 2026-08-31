@@ -14,8 +14,14 @@ public class AiMessage {
 
     private Long conversationId;
 
+    /** 客户端生成的消息幂等键*/
+    private String clientId;
+
     /** user / assistant */
     private String role;
+
+    /** streaming / done / failed */
+    private String status = "done";
 
     private String content;
 

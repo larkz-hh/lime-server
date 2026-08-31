@@ -81,4 +81,7 @@ public class AiProperties {
 
     /** Dots 是否启用深度思考 */
     private boolean dotsEnableThinking = false;
+
+    /** 翻译默认模型*/
+    private String translateModel = "dots3-note-prev";
 }

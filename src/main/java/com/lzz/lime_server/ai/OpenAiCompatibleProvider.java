@@ -17,6 +17,7 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Stream;
 
 /**
@@ -114,6 +115,12 @@ public class OpenAiCompatibleProvider implements AiProvider {
         if (spec.getEnableThinking() != null) {
             ObjectNode kwargs = body.putObject("chat_template_kwargs");
             kwargs.put("enable_thinking", spec.getEnableThinking());
+        }
+        Map<String, Object> extraBody = spec.getExtraBody();
+        if (extraBody != null && !extraBody.isEmpty()) {
+            for (Map.Entry<String, Object> entry : extraBody.entrySet()) {
+                body.set(entry.getKey(), objectMapper.valueToTree(entry.getValue()));
+            }
         }
         String json;
         try {

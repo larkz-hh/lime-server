@@ -3,6 +3,8 @@ package com.lzz.lime_server.ai;
 import lombok.Builder;
 import lombok.Data;
 
+import java.util.Map;
+
 /**
  * 一次 AI 调用所需的模型规格。
  * 内置模型由系统配置组装；「用户自定义模型」由数据库记录组装。
@@ -33,4 +35,7 @@ public class AiModelSpec {
 
     /** 深度思考开关：null 不传用服务默认*/
     private Boolean enableThinking;
+
+    /** 额外请求体参数（thinking 开关等），可空 */
+    private Map<String, Object> extraBody;
 }

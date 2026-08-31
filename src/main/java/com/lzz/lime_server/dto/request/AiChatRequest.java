@@ -9,8 +9,13 @@ import java.util.List;
 @Data
 public class AiChatRequest {
 
-    /** 会话 id，不传则新建会话 */
-    private Long conversationId;
+    /** 客户端生成的会话 id（UUID） */
+    @NotBlank(message = "会话 id 不能为空")
+    private String conversationId;
+
+    /** 客户端生成的消息幂等键（UUID）*/
+    @NotBlank(message = "消息幂等键不能为空")
+    private String messageClientId;
 
     /** 消息内容 */
     @NotBlank(message = "消息不能为空")

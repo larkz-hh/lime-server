@@ -16,6 +16,7 @@ import com.lzz.lime_server.ai.NoteSnapshot;
 import com.lzz.lime_server.common.exception.BusinessException;
 import com.lzz.lime_server.config.AiPrompts;
 import com.lzz.lime_server.config.AiProperties;
+import com.lzz.lime_server.dto.request.AiChatCancelRequest;
 import com.lzz.lime_server.dto.request.AiChatRequest;
 import com.lzz.lime_server.dto.response.AiConversationResponse;
 import com.lzz.lime_server.dto.response.AiMessageResponse;
@@ -34,6 +35,7 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.function.Consumer;
 
 @Slf4j
 @Service
@@ -56,6 +58,7 @@ public class AiChatServiceImpl implements AiChatService {
     @Override
     public SseEmitter chat(Long userId, AiChatRequest request) {
         String message = request.getMessage().trim();
+        String conversationClientId = request.getConversationId();
         List<String> images = request.getImageUrls();
         boolean hasRequestImages = images != null && !images.isEmpty();
 
@@ -71,65 +74,127 @@ public class AiChatServiceImpl implements AiChatService {
 
         AiModelSpec spec = aiSupport.resolveSpec(request.getModel(), needVision);
 
-        // 会话无 id 则新建
-        AiConversation conversation;
-        if (request.getConversationId() == null) {
+        // 按客户端生成的会话 id 查找，不存在则新建
+        AiConversation conversation = conversationMapper.selectOne(new LambdaQueryWrapper<AiConversation>()
+                .eq(AiConversation::getUserId, userId)
+                .eq(AiConversation::getClientId, conversationClientId));
+        if (conversation == null) {
             conversation = new AiConversation();
             conversation.setUserId(userId);
+            conversation.setClientId(conversationClientId);
             conversation.setTitle(truncate(message, 50));
             conversationMapper.insert(conversation);
-        } else {
-            conversation = conversationMapper.selectById(request.getConversationId());
-            if (conversation == null || !conversation.getUserId().equals(userId)) {
-                throw new BusinessException("会话不存在");
-            }
         }
+
+        final Long internalConversationId = conversation.getId();
 
         // 用户消息落库
-        AiMessage userMsg = new AiMessage();
-        userMsg.setConversationId(conversation.getId());
-        userMsg.setRole("user");
-        userMsg.setContent(message);
-        userMsg.setImages(toJson(images));
-        if (noteSnapshot != null) {
-            userMsg.setNoteId(request.getNoteId());
-            userMsg.setNoteSnapshot(toJson(noteSnapshot));
+        final AiMessage userMsg;
+        AiMessage existingUserMsg = messageMapper.selectOne(new LambdaQueryWrapper<AiMessage>()
+                .eq(AiMessage::getClientId, request.getMessageClientId()));
+        if (existingUserMsg != null) {
+            userMsg = existingUserMsg;
+        } else {
+            AiMessage msg = new AiMessage();
+            msg.setConversationId(internalConversationId);
+            msg.setClientId(request.getMessageClientId());
+            msg.setRole("user");
+            msg.setContent(message);
+            msg.setImages(toJson(images));
+            if (noteSnapshot != null) {
+                msg.setNoteId(request.getNoteId());
+                msg.setNoteSnapshot(toJson(noteSnapshot));
+            }
+            messageMapper.insert(msg);
+            userMsg = msg;
         }
-        messageMapper.insert(userMsg);
 
         // 滚动摘要压缩。失败不阻断聊天
-        conversation = summarizeIfNeeded(conversation.getId());
+        conversation = summarizeIfNeeded(internalConversationId);
 
         // 组装上下文（系统提示 + 历史摘要 + 最近 N 条原文，时间正序）
         List<ChatMessage> context = buildContext(conversation, spec.isSupportsVision());
 
-        // lambda 捕获要求 effectively final，提取会话 id
-        final Long conversationId = conversation.getId();
+        // 助手占位：生成开始即落库，边生成边更新（断线后重连续传/补齐用）
+        AiMessage assistant = new AiMessage();
+        assistant.setConversationId(internalConversationId);
+        assistant.setRole("assistant");
+        assistant.setContent("");
+        assistant.setStatus("streaming");
+        messageMapper.insert(assistant);
+        final Long assistantId = assistant.getId();
+
+        // 增量持久化
+        final StringBuilder persistBuf = new StringBuilder();
+        final long[] lastPersist = {System.currentTimeMillis()};
+        Consumer<String> onDelta = text -> {
+            persistBuf.append(text);
+            long now = System.currentTimeMillis();
+            if (now - lastPersist[0] > 800) {
+                lastPersist[0] = now;
+                // 仅当仍在 streaming 时写入
+                messageMapper.update(null, new LambdaUpdateWrapper<AiMessage>()
+                        .eq(AiMessage::getId, assistantId)
+                        .eq(AiMessage::getStatus, "streaming")
+                        .set(AiMessage::getContent, persistBuf.toString())
+                        .set(AiMessage::getStatus, "streaming"));
+            }
+        };
+        Consumer<String> onError = err -> {
+            messageMapper.update(null, new LambdaUpdateWrapper<AiMessage>()
+                    .eq(AiMessage::getId, assistantId)
+                    .eq(AiMessage::getStatus, "streaming")
+                    .set(AiMessage::getStatus, "failed"));
+        };
+
         return aiSupport.startStream(spec, context, fullText -> {
-            // 助手消息落库
-            AiMessage assistant = new AiMessage();
-            assistant.setConversationId(conversationId);
-            assistant.setRole("assistant");
-            assistant.setContent(fullText);
-            messageMapper.insert(assistant);
+            // 完成：仅当仍在 streaming 时写入全文并标记完成；已被打断(stopped)则不覆盖、不推 done
+            int updated = messageMapper.update(null, new LambdaUpdateWrapper<AiMessage>()
+                    .eq(AiMessage::getId, assistantId)
+                    .eq(AiMessage::getStatus, "streaming")
+                    .set(AiMessage::getContent, fullText)
+                    .set(AiMessage::getStatus, "done"));
+            if (updated == 0) {
+                return null;
+            }
 
             // 消息数达到阈值时，异步生成简短标题
-            maybeSummarizeTitleAsync(conversationId);
+            maybeSummarizeTitleAsync(internalConversationId);
 
             // 刷新会话更新时间
             AiConversation update = new AiConversation();
-            update.setId(conversationId);
+            update.setId(internalConversationId);
             update.setUpdateTime(LocalDateTime.now());
             conversationMapper.updateById(update);
 
             ObjectNode done = objectMapper.createObjectNode();
             done.put("type", "done");
-            done.put("conversationId", conversationId);
+            done.put("conversationId", conversationClientId);
             done.put("userMessageId", userMsg.getId());
-            done.put("assistantMessageId", assistant.getId());
+            done.put("assistantMessageId", assistantId);
             done.put("model", spec.getModel());
             return done.toString();
-        });
+        }, onDelta, onError);
+    }
+
+    @Override
+    public void cancel(Long userId, AiChatCancelRequest request) {
+        AiMessage userMsg = messageMapper.selectOne(new LambdaQueryWrapper<AiMessage>()
+                .eq(AiMessage::getClientId, request.getMessageClientId()));
+        if (userMsg == null) {
+            return; // 消息不存在，忽略
+        }
+        AiConversation conversation = conversationMapper.selectById(userMsg.getConversationId());
+        if (conversation == null || !conversation.getUserId().equals(userId)) {
+            return; // 无权或会话不存在，忽略
+        }
+        // 将该会话仍在流式生成的助手标记为停止
+        messageMapper.update(null, new LambdaUpdateWrapper<AiMessage>()
+                .eq(AiMessage::getConversationId, userMsg.getConversationId())
+                .eq(AiMessage::getRole, "assistant")
+                .eq(AiMessage::getStatus, "streaming")
+                .set(AiMessage::getStatus, "stopped")
+                .set(request.getPartialContent() != null, AiMessage::getContent, request.getPartialContent()));
     }
 
     @Override
@@ -151,7 +216,7 @@ public class AiChatServiceImpl implements AiChatService {
         List<AiConversation> page = hasMore ? list.subList(0, size) : list;
         List<AiConversationResponse> items = page.stream().map(c -> {
             AiConversationResponse r = new AiConversationResponse();
-            r.setId(c.getId());
+            r.setId(c.getClientId());
             r.setTitle(c.getTitle());
             r.setCreateTime(c.getCreateTime());
             r.setUpdateTime(c.getUpdateTime());
@@ -162,47 +227,60 @@ public class AiChatServiceImpl implements AiChatService {
     }
 
     @Override
-    public List<AiMessageResponse> getMessages(Long userId, Long conversationId) {
+    public List<AiMessageResponse> getMessages(Long userId, String conversationId) {
         AiConversation conversation = requireOwnConversation(userId, conversationId);
+        Long internalId = conversation.getId();
         List<AiMessage> list = messageMapper.selectList(new LambdaQueryWrapper<AiMessage>()
-                .eq(AiMessage::getConversationId, conversationId)
+                .eq(AiMessage::getConversationId, internalId)
                 .orderByAsc(AiMessage::getId));
         return list.stream().map(m -> {
             AiMessageResponse r = new AiMessageResponse();
             r.setId(m.getId());
+            r.setClientId(m.getClientId());
             r.setRole(m.getRole());
+            r.setStatus(m.getStatus());
             r.setContent(m.getContent());
             r.setImages(parseImages(m.getImages()));
             r.setNoteId(m.getNoteId());
+            NoteSnapshot snapshot = parseSnapshot(m.getNoteSnapshot());
+            if (snapshot != null) {
+                r.setNoteTitle(snapshot.getTitle());
+                List<String> imgs = snapshot.getImages();
+                if (imgs != null && !imgs.isEmpty()) {
+                    r.setNoteCover(imgs.get(0));
+                }
+            }
             r.setCreateTime(m.getCreateTime());
             return r;
         }).toList();
     }
 
     @Override
-    public void deleteConversation(Long userId, Long conversationId) {
-        requireOwnConversation(userId, conversationId);
-        conversationMapper.deleteById(conversationId);
-        messageMapper.delete(new LambdaQueryWrapper<AiMessage>().eq(AiMessage::getConversationId, conversationId));
+    public void deleteConversation(Long userId, String conversationId) {
+        AiConversation conversation = requireOwnConversation(userId, conversationId);
+        Long internalId = conversation.getId();
+        conversationMapper.deleteById(internalId);
+        messageMapper.delete(new LambdaQueryWrapper<AiMessage>().eq(AiMessage::getConversationId, internalId));
     }
 
     @Override
-    public void deleteMessage(Long userId, Long conversationId, Long messageId) {
-        requireOwnConversation(userId, conversationId);
+    public void deleteMessage(Long userId, String conversationId, Long messageId) {
+        AiConversation conversation = requireOwnConversation(userId, conversationId);
         AiMessage message = messageMapper.selectById(messageId);
-        if (message == null || !message.getConversationId().equals(conversationId)) {
+        if (message == null || !message.getConversationId().equals(conversation.getId())) {
             throw new BusinessException("消息不存在");
         }
         messageMapper.deleteById(messageId);
     }
 
     @Override
-    public void clearMessages(Long userId, Long conversationId) {
-        requireOwnConversation(userId, conversationId);
-        messageMapper.delete(new LambdaQueryWrapper<AiMessage>().eq(AiMessage::getConversationId, conversationId));
+    public void clearMessages(Long userId, String conversationId) {
+        AiConversation conversation = requireOwnConversation(userId, conversationId);
+        Long internalId = conversation.getId();
+        messageMapper.delete(new LambdaQueryWrapper<AiMessage>().eq(AiMessage::getConversationId, internalId));
         // 消息清空后，摘要与压缩游标重置
         conversationMapper.update(null, new LambdaUpdateWrapper<AiConversation>()
-                .eq(AiConversation::getId, conversationId)
+                .eq(AiConversation::getId, internalId)
                 .set(AiConversation::getSummary, null)
                 .set(AiConversation::getSummarizedUntilId, null));
     }
@@ -347,9 +425,11 @@ public class AiChatServiceImpl implements AiChatService {
         }
     }
 
-    private AiConversation requireOwnConversation(Long userId, Long conversationId) {
-        AiConversation conversation = conversationMapper.selectById(conversationId);
-        if (conversation == null || !conversation.getUserId().equals(userId)) {
+    private AiConversation requireOwnConversation(Long userId, String conversationId) {
+        AiConversation conversation = conversationMapper.selectOne(new LambdaQueryWrapper<AiConversation>()
+                .eq(AiConversation::getUserId, userId)
+                .eq(AiConversation::getClientId, conversationId));
+        if (conversation == null) {
             throw new BusinessException("会话不存在");
         }
         return conversation;

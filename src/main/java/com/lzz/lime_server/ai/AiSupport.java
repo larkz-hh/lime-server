@@ -10,6 +10,8 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.util.List;
+import java.util.Map;
+import java.util.function.Consumer;
 import java.util.function.Function;
 
 /**
@@ -93,6 +95,7 @@ public class AiSupport {
                 .apiKey(properties.getLightApiKey())
                 .model(properties.getLightModel())
                 .supportsVision(false)
+                .extraBody(Map.of("thinking", Map.of("type", "disabled")))
                 .build();
     }
 
@@ -103,6 +106,12 @@ public class AiSupport {
      */
     public SseEmitter startStream(AiModelSpec spec, List<ChatMessage> messages,
                                   Function<String, String> doneEventBuilder) {
+        return startStream(spec, messages, doneEventBuilder, null, null);
+    }
+
+    public SseEmitter startStream(AiModelSpec spec, List<ChatMessage> messages,
+                                  Function<String, String> doneEventBuilder,
+                                  Consumer<String> onDelta, Consumer<String> onError) {
         if (properties.getApiKey() == null || properties.getApiKey().isBlank()) {
             throw new BusinessException("AI 服务未配置 API Key，请联系管理员");
         }
@@ -113,11 +122,18 @@ public class AiSupport {
                 aiProvider.streamChat(spec, messages, new AiStreamCallback() {
                     @Override
                     public void onDelta(String text) {
+                        full.append(text);
                         try {
-                            full.append(text);
                             emitter.send(SseEmitter.event().data(deltaEvent(text)));
                         } catch (Exception e) {
                             log.debug("SSE 发送失败（客户端可能已断开）：{}", e.getMessage());
+                        }
+                        if (onDelta != null) {
+                            try {
+                                onDelta.accept(text);
+                            } catch (Exception e) {
+                                log.warn("AI 增量持久化失败：{}", e.getMessage());
+                            }
                         }
                     }
 
@@ -139,17 +155,31 @@ public class AiSupport {
 
                     @Override
                     public void onError(String message) {
+                        fireError(onError, message);
                         safeSendError(emitter, message);
                     }
                 });
             } catch (BusinessException e) {
+                fireError(onError, e.getMessage());
                 safeSendError(emitter, e.getMessage());
             } catch (Exception e) {
                 log.error("AI 流式调用异常", e);
+                fireError(onError, "AI 服务暂时不可用，请稍后重试");
                 safeSendError(emitter, "AI 服务暂时不可用，请稍后重试");
             }
         });
         return emitter;
+    }
+
+    private void fireError(Consumer<String> onError, String message) {
+        if (onError == null) {
+            return;
+        }
+        try {
+            onError.accept(message);
+        } catch (Exception e) {
+            log.warn("AI 错误持久化失败：{}", e.getMessage());
+        }
     }
 
     private void safeSendError(SseEmitter emitter, String message) {

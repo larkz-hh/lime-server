@@ -2,6 +2,7 @@ package com.lzz.lime_server.controller;
 
 import com.lzz.lime_server.ai.AiModelInfo;
 import com.lzz.lime_server.common.Result;
+import com.lzz.lime_server.dto.request.AiChatCancelRequest;
 import com.lzz.lime_server.dto.request.AiChatRequest;
 import com.lzz.lime_server.dto.request.TranslateRequest;
 import com.lzz.lime_server.dto.request.WriteAssistRequest;
@@ -56,6 +57,13 @@ public class AiController {
         return aiChatService.chat(currentUserId(), request);
     }
 
+    /// 打断一条正在生成的回复
+    @PostMapping("/chat/cancel")
+    public Result<Void> cancelChat(@Valid @RequestBody AiChatCancelRequest request) {
+        aiChatService.cancel(currentUserId(), request);
+        return Result.success();
+    }
+
     /// 我的会话列表，游标分页（按会话 id 倒序）
     @GetMapping("/conversations")
     public Result<CursorPage<AiConversationResponse>> getConversations(
@@ -67,27 +75,27 @@ public class AiController {
 
     /// 会话历史消息，时间正序
     @GetMapping("/conversations/{conversationId}/messages")
-    public Result<List<AiMessageResponse>> getMessages(@PathVariable Long conversationId) {
+    public Result<List<AiMessageResponse>> getMessages(@PathVariable String conversationId) {
         return Result.success(aiChatService.getMessages(currentUserId(), conversationId));
     }
 
     /// 删除会话（本人）
     @DeleteMapping("/conversations/{conversationId}")
-    public Result<Void> deleteConversation(@PathVariable Long conversationId) {
+    public Result<Void> deleteConversation(@PathVariable String conversationId) {
         aiChatService.deleteConversation(currentUserId(), conversationId);
         return Result.success();
     }
 
     /// 删除会话中的单条消息（仅本人）
     @DeleteMapping("/conversations/{conversationId}/messages/{messageId}")
-    public Result<Void> deleteMessage(@PathVariable Long conversationId, @PathVariable Long messageId) {
+    public Result<Void> deleteMessage(@PathVariable String conversationId, @PathVariable Long messageId) {
         aiChatService.deleteMessage(currentUserId(), conversationId, messageId);
         return Result.success();
     }
 
     /// 清空会话全部消息，保留会话（仅本人）
     @DeleteMapping("/conversations/{conversationId}/messages")
-    public Result<Void> clearMessages(@PathVariable Long conversationId) {
+    public Result<Void> clearMessages(@PathVariable String conversationId) {
         aiChatService.clearMessages(currentUserId(), conversationId);
         return Result.success();
     }
