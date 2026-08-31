@@ -1565,4 +1565,300 @@ Access Token 过期后，用 Refresh Token 换取新的双 Token。
 { "code": 200, "message": "操作成功", "data": null }
 ```
 
+---
+
+## AI 接口 `/api/ai`
+
+> 以下接口均需登录。流式接口返回 `text/event-stream`（SSE），每条事件的 data 为 JSON 字符串。
+
+### SSE 事件格式
+
+写作辅助、聊天两个流式接口逐条推送以下事件：
+
+| type | 说明 | data 字段 |
+|------|------|-----------|
+| delta | 增量文本 | content：本轮增量 |
+| tool | 工具调用开始 | name：工具名（get_weather 查天气 / search_web 联网搜索） |
+| done | 生成结束 | 各接口不同，见下文 |
+| error | 出错 | message：可展示的错误提示 |
+
+### 内置模型列表
+
+`GET /api/ai/models`
+
+App 模型选择器用，当前仅提供支持文字+图片的视觉模型。流式 `done` 事件的 `model` 字段返回实际使用的模型。
+
+**响应**
+
+```json
+{
+  "code": 200,
+  "message": "操作成功",
+  "data": [
+    { "name": "deepseek-v4-flash-vision-exp", "displayName": "DeepSeek V4 Flash Vision", "description": "支持图片理解（识图、看图写文案）", "supportsVision": true },
+    { "name": "dots3-note-prev", "displayName": "Dots 3 Note", "description": "小红书 Dots 模型，支持文字与图片理解", "supportsVision": true },
+    { "name": "kimi-k2.6", "displayName": "Kimi K2.6", "description": "Moonshot Kimi 模型，支持文字与图片理解", "supportsVision": true }
+  ]
+}
+```
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| name | string | 模型名，传给下方接口的 model 字段 |
+| displayName | string | 展示名 |
+| description | string | 说明 |
+| supportsVision | boolean | 是否支持图片输入 |
+
+---
+
+### AI 翻译
+
+`POST /api/ai/translate`
+
+非流式接口，短文本一次返回（用于评论翻译等场景）。限流：每用户每分钟 10 次、每天 100 次。
+
+**请求体**
+
+```json
+{
+  "text": "This is so beautiful!",
+  "targetLang": "中文",
+  "sourceLang": "英语"
+}
+```
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| text | string | 是 | 待翻译文本，≤1000 字 |
+| targetLang | string | 是 | 目标语言（如 中文/英语/日语/韩语/法语） |
+| sourceLang | string | 否 | 源语言，不传则自动检测 |
+| model | string | 否 | 指定模型，不传用默认文本模型 |
+
+**响应**
+
+```json
+{
+  "code": 200,
+  "message": "操作成功",
+  "data": {
+    "translatedText": "太美了！",
+    "sourceLang": "英语",
+    "targetLang": "中文"
+  }
+}
+```
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| translatedText | string | 译文 |
+| sourceLang | string | 源语言（请求未指定时为 null，指定时原样返回） |
+| targetLang | string | 目标语言 |
+
+---
+
+### 写作辅助 / 看图写文案
+
+`POST /api/ai/write/assist`
+
+SSE 流式返回。content 与 imageUrls 至少提供一项；action=caption 时必须携带 imageUrls；polish/continue/condense 模式下 content 少于 5 个字、title 无图时少于 2 个字时返回 `内容太短了…` 提示（title 带图时可纯看图起标题，不限制文字长度）。限流：每用户每分钟 5 次、每天 50 次。
+
+**请求体**
+
+```json
+{
+  "content": "今天去了故宫",
+  "action": "polish",
+  "imageUrls": ["http://oss.example.com/lime-bucket/xxx.jpg"],
+  "model": "deepseek-v4-flash-vision-exp"
+}
+```
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| action | string | 是 | polish=润色 / continue=续写 / title=起标题 / condense=精简 / caption=看图写文案 |
+| content | string | 否 | 待处理文字，最多 2000 字（caption 时可为空） |
+| imageUrls | string[] | 否 | 图片 URL，最多 4 张；带图时自动使用视觉模型 |
+| model | string | 否 | 指定模型（见模型列表接口），不传用默认；带图时自动切换视觉模型，即使指定了文本模型也会自动升级 |
+
+**SSE 事件示例**
+
+```
+data: {"type":"delta","content":"今天"}
+data: {"type":"delta","content":"去了故宫"}
+data: {"type":"done","content":"今天去了故宫，红墙金瓦……"}
+```
+
+done 事件字段：`content` 为生成全文，`model` 为实际使用的模型（带图时可能已自动切换为视觉模型）。
+
+---
+
+### AI 聊天
+
+`POST /api/ai/chat`
+
+SSE 流式返回。conversationId、messageClientId 由客户端生成（UUID）：首次使用新 conversationId 即新建会话；messageClientId 为消息幂等键（断线重试不重复落库）。带 imageUrls 时自动使用视觉模型。同一会话携带最近 20 条历史消息作为上下文。限流：每用户每分钟 5 次、每天 50 次。
+
+**请求体**
+
+```json
+{
+  "conversationId": "会话id（客户端生成UUID，新值=新会话）",
+  "messageClientId": "消息幂等键（客户端生成UUID）",
+  "message": "这篇笔记讲了什么？",
+  "imageUrls": ["http://oss.example.com/lime-bucket/outfit.jpg"],
+  "noteId": 66,
+  "search": true
+}
+```
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| conversationId | string | 是 | 客户端生成的会话 id（UUID），首次使用新值即新建会话 |
+| messageClientId | string | 是 | 客户端生成的消息幂等键（UUID），用于去重与断线续传 |
+| message | string | 是 | 消息内容，最多 2000 字 |
+| imageUrls | string[] | 否 | 图片 URL，最多 4 张；带图时自动使用视觉模型 |
+| noteId | number | 否 | 引用提问的笔记 id（仅已发布笔记），见下方「引用笔记提问」 |
+| model | string | 否 | 指定模型（见模型列表接口） |
+| search | boolean | 否 | 是否启用联网搜索，默认 true（开启）；false 关闭 |
+
+**引用笔记提问（noteId）**
+
+传 noteId 后，后端检索该笔记的以下内容加入上下文，模型基于笔记信息回答，且可在该会话中继续追问：
+
+- 标题、正文（截断 2000 字）
+- 图片（图文笔记前 4 张 / 视频笔记封面），带图自动切换视觉模型
+- 点赞/收藏/浏览/评论数
+- 精选评论（热度前 20 条一级评论文字）
+
+笔记内容在发送当轮检索一次并存入消息快照，后续轮次复用（笔记被删后历史对话仍可引用）。笔记不存在或未发布返回 `笔记不存在或未发布`。
+
+**会话记忆与滚动摘要压缩**
+
+- 每轮请求把会话最近 20 条消息原文 + 系统提示重发给模型（多轮记忆）；
+- 当「未被压缩的消息」超过 30 条时，自动把最早的一批（最多 10 条，压缩后至少保留 20 条原文）用文本模型压缩成一段 200 字内的摘要，存到会话上；后续轮次上下文 = 系统提示 + 历史摘要 + 最近 20 条原文；
+- 被压缩的消息仍保留在历史记录中（可回显、可删除），只是不再原文参与上下文；
+- 清空会话消息时，摘要一并清空。
+
+**SSE 事件示例**
+
+```
+data: {"type":"delta","content":"这身"}
+data: {"type":"delta","content":"搭配不错"}
+data: {"type":"tool","name":"get_weather"}
+data: {"type":"done","conversationId":"uuid-会话id","userMessageId":101,"assistantMessageId":102}
+```
+
+done 事件字段：
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| conversationId | number | 会话 id（新会话时为新建的 id） |
+| userMessageId | number | 本次用户消息 id |
+| assistantMessageId | number | 本次助手回复 id |
+| model | string | 实际使用的模型名（带图时可能已自动切换为视觉模型） |
+
+---
+
+### 我的会话列表
+
+`GET /api/ai/conversations`
+
+游标分页，按会话 id 倒序。
+
+**Query 参数**
+
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| cursor | string | 否 | 上一页返回的 nextCursor |
+| size | number | 否 | 每页条数，默认 10，最大 50 |
+
+**响应**
+
+```json
+{
+  "code": 200,
+  "message": "操作成功",
+  "data": {
+    "items": [
+      { "id": "uuid-会话id", "title": "帮我看看这身搭配怎么样", "createTime": "2026-08-25T10:00:00", "updateTime": "2026-08-25T10:05:00" }
+    ],
+    "nextCursor": "1",
+    "hasMore": true
+  }
+}
+```
+
+---
+
+### 会话历史消息
+
+`GET /api/ai/conversations/{conversationId}/messages`
+
+仅会话所属用户可访问，消息按时间正序。
+
+**响应**
+
+```json
+{
+  "code": 200,
+  "message": "操作成功",
+  "data": [
+    { "id": 101, "role": "user", "content": "帮我看看这身搭配怎么样", "images": ["http://oss.example.com/lime-bucket/outfit.jpg"], "createTime": "2026-08-25T10:00:00" },
+    { "id": 102, "role": "assistant", "content": "这身搭配不错……", "images": null, "createTime": "2026-08-25T10:00:15" }
+  ]
+}
+```
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| id | number | 消息内部 id |
+| clientId | string | 客户端消息幂等键（UUID），断线续传对应用 |
+| role | string | user / assistant |
+| content | string | 消息文本（assistant 生成中时是部分内容，见 status） |
+| status | string | streaming=生成中 / done=完成 / failed=失败 / stopped=被打断 |
+| images | string[] | 消息携带的图片 URL（可为 null） |
+| noteId | number | 消息引用提问的笔记 id（App 端渲染引用卡片用，可为 null） |
+
+---
+
+### 删除会话
+
+`DELETE /api/ai/conversations/{conversationId}`
+
+仅会话所属用户可操作，删除后会话及其消息不可恢复。
+
+**响应**
+
+```json
+{ "code": 200, "message": "操作成功", "data": null }
+```
+
+---
+
+### 删除会话中的单条消息
+
+`DELETE /api/ai/conversations/{conversationId}/messages/{messageId}`
+
+仅会话所属用户可操作，删除后不可恢复。删除的消息不再参与后续聊天的上下文。
+
+**响应**
+
+```json
+{ "code": 200, "message": "操作成功", "data": null }
+```
+
+---
+
+### 清空会话消息
+
+`DELETE /api/ai/conversations/{conversationId}/messages`
+
+仅会话所属用户可操作，清空该会话的全部消息但保留会话本身。清空后继续在该会话发消息即为全新对话。
+
+**响应**
+
+```json
+{ "code": 200, "message": "操作成功", "data": null }
+```
+
 ```
