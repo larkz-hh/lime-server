@@ -87,4 +87,13 @@ public class AiProperties {
 
     /** Tavily 联网搜索 API Key */
     private String tavilyApiKey = "";
+
+    /** Kimi 模型 API 地址 */
+    private String kimiBaseUrl = "";
+
+    /** Kimi 模型 API Key */
+    private String kimiApiKey = "";
+
+    /** Kimi 是否启用思考模式 */
+    private boolean kimiEnableThinking = false;
 }

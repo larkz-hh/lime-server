@@ -69,6 +69,13 @@ public class AiSupport {
                     .authType("api-key")
                     .pathPrefix("/v1")
                     .enableThinking(properties.isDotsEnableThinking());
+        } else if (isKimiModel(model)) {
+            builder.baseUrl(properties.getKimiBaseUrl())
+                    .apiKey(properties.getKimiApiKey())
+                    .authType("bearer")
+                    .pathPrefix("/v1")
+                    .extraBody(Map.of("thinking", Map.of("type",
+                            properties.isKimiEnableThinking() ? "enabled" : "disabled")));
         } else {
             builder.baseUrl(properties.getBaseUrl())
                     .apiKey(properties.getApiKey())
@@ -81,6 +88,11 @@ public class AiSupport {
     /** 判断是否 Dots 模型（走独立地址与 api-key 认证） */
     private boolean isDotsModel(String model) {
         return model != null && model.startsWith("dots");
+    }
+
+    /** 判断是否 Kimi 模型（走独立地址与 Bearer 认证） */
+    private boolean isKimiModel(String model) {
+        return model != null && model.startsWith("kimi");
     }
 
     /**

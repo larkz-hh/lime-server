@@ -125,6 +125,10 @@ ai:
   translate-model: ${AI_TRANSLATE_MODEL:dots3-note-prev}
   # Tavily 联网搜索
   tavily-api-key: ${TAVILY_API_KEY:}
+  # Kimi 模型
+  kimi-base-url: ${AI_KIMI_BASE_URL:}
+  kimi-api-key: ${AI_KIMI_API_KEY:}
+  kimi-enable-thinking: ${AI_KIMI_ENABLE_THINKING:false}
 
 server:
   port: 8080
