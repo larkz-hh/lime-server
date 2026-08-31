@@ -123,6 +123,8 @@ ai:
   dots-enable-thinking: ${AI_DOTS_ENABLE_THINKING:false}
   # 翻译默认模型
   translate-model: ${AI_TRANSLATE_MODEL:dots3-note-prev}
+  # Tavily 联网搜索
+  tavily-api-key: ${TAVILY_API_KEY:}
 
 server:
   port: 8080
