@@ -13,10 +13,12 @@ import com.lzz.lime_server.ai.AiResponse;
 import com.lzz.lime_server.ai.AiStreamCallback;
 import com.lzz.lime_server.ai.AiSupport;
 import com.lzz.lime_server.ai.AiToolCall;
+import com.lzz.lime_server.ai.AiTools;
 import com.lzz.lime_server.ai.ChatMessage;
 import com.lzz.lime_server.ai.NoteContextLoader;
 import com.lzz.lime_server.ai.NoteSnapshot;
 import com.lzz.lime_server.ai.WeatherToolService;
+import com.lzz.lime_server.ai.TavilySearchService;
 import com.lzz.lime_server.common.exception.BusinessException;
 import com.lzz.lime_server.config.AiPrompts;
 import com.lzz.lime_server.config.AiProperties;
@@ -51,24 +53,6 @@ public class AiChatServiceImpl implements AiChatService {
     /** 摘要压缩全局锁，同一时刻只做一个会话的压缩 */
     private static final Object SUMMARIZE_LOCK = new Object();
 
-    /** 天气工具声明 */
-    private static final List<Map<String, Object>> WEATHER_TOOLS = List.of(
-            Map.of(
-                    "type", "function",
-                    "function", Map.of(
-                            "name", "get_weather",
-                            "description", "查询指定地点的实时天气。用户询问天气、气温、下雨、湿度等情况时调用。",
-                            "parameters", Map.of(
-                                    "type", "object",
-                                    "properties", Map.of(
-                                            "location", Map.of("type", "string", "description", "城市或地点名称，如 北京、上海、杭州")
-                                    ),
-                                    "required", List.of("location")
-                            )
-                    )
-            )
-    );
-
     private final AiProperties properties;
     private final AiPrompts prompts;
     private final AiSupport aiSupport;
@@ -76,6 +60,7 @@ public class AiChatServiceImpl implements AiChatService {
     private final AiProvider aiProvider;
     private final NoteContextLoader noteContextLoader;
     private final WeatherToolService weatherToolService;
+    private final TavilySearchService tavilySearchService;
     private final AiConversationMapper conversationMapper;
     private final AiMessageMapper messageMapper;
     private final ObjectMapper objectMapper;
@@ -172,8 +157,9 @@ public class AiChatServiceImpl implements AiChatService {
                     .set(AiMessage::getStatus, "failed"));
         };
 
-        return startChatStream(spec, context, fullText -> {
-            // 完成：仅当仍在 streaming 时写入全文并标记完成；已被打断(stopped)则不覆盖、不推 done
+        boolean enableSearch = request.getSearch() == null || request.getSearch();
+        return startChatStream(spec, context, enableSearch, fullText -> {
+            // 完成：仅当仍在 streaming 时写入全文并标记完成；已被打断(stopped)不覆盖、不推 done
             int updated = messageMapper.update(null, new LambdaUpdateWrapper<AiMessage>()
                     .eq(AiMessage::getId, assistantId)
                     .eq(AiMessage::getStatus, "streaming")
@@ -204,8 +190,8 @@ public class AiChatServiceImpl implements AiChatService {
 
     // ===== 工具调用（Function Calling） =====
 
-    /** 带工具声明的 spec 副本（当前只挂天气工具） */
-    private AiModelSpec withTools(AiModelSpec spec) {
+    /** 带工具声明的 spec 副本 */
+    private AiModelSpec withTools(AiModelSpec spec, boolean enableSearch) {
         return AiModelSpec.builder()
                 .baseUrl(spec.getBaseUrl())
                 .apiKey(spec.getApiKey())
@@ -215,7 +201,7 @@ public class AiChatServiceImpl implements AiChatService {
                 .pathPrefix(spec.getPathPrefix())
                 .enableThinking(spec.getEnableThinking())
                 .extraBody(spec.getExtraBody())
-                .tools(WEATHER_TOOLS)
+                .tools(AiTools.chatTools(enableSearch))
                 .build();
     }
 
@@ -223,13 +209,13 @@ public class AiChatServiceImpl implements AiChatService {
      * 聊天流式入口：先让模型判断是否需要工具（非流式快速判断），
      * 需要则执行工具后继续流式输出最终回答；不需要则直接用第一轮结果。
      */
-    private SseEmitter startChatStream(AiModelSpec spec, List<ChatMessage> context,
+    private SseEmitter startChatStream(AiModelSpec spec, List<ChatMessage> context, boolean enableSearch,
                                        Function<String, String> doneEventBuilder,
                                        Consumer<String> onDelta, Consumer<String> onError) {
         SseEmitter emitter = new SseEmitter((properties.getReadTimeoutSeconds() + 15) * 1000L);
         Thread.ofVirtual().name("ai-chat").start(() -> {
             try {
-                AiResponse first = aiProvider.chat(withTools(spec), context);
+                AiResponse first = aiProvider.chat(withTools(spec, enableSearch), context);
                 List<AiToolCall> calls = first.getToolCalls();
                 if (calls != null && !calls.isEmpty()) {
                     // 模型要调工具：先通知 App，再执行工具，之后继续流式
@@ -331,6 +317,9 @@ public class AiChatServiceImpl implements AiChatService {
         if ("get_weather".equals(toolCall.getName())) {
             return weatherToolService.fetchWeather(parseLocation(toolCall.getArguments()));
         }
+        if ("search_web".equals(toolCall.getName())) {
+            return tavilySearchService.search(parseQuery(toolCall.getArguments()));
+        }
         return "未知工具：" + toolCall.getName();
     }
 
@@ -343,6 +332,20 @@ public class AiChatServiceImpl implements AiChatService {
             JsonNode node = objectMapper.readTree(arguments);
             String location = node.path("location").asText("");
             return location.isBlank() ? null : location;
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    /** 从工具参数 JSON 中解析 query */
+    private String parseQuery(String arguments) {
+        if (arguments == null || arguments.isBlank()) {
+            return null;
+        }
+        try {
+            JsonNode node = objectMapper.readTree(arguments);
+            String query = node.path("query").asText("");
+            return query.isBlank() ? null : query;
         } catch (Exception e) {
             return null;
         }

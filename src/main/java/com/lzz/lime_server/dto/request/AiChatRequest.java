@@ -31,4 +31,7 @@ public class AiChatRequest {
 
     /** 指定模型（可选） */
     private String model;
+
+    /** 是否启用联网搜索（默认开启） */
+    private Boolean search;
 }

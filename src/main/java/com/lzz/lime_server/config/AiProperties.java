@@ -84,4 +84,7 @@ public class AiProperties {
 
     /** 翻译默认模型*/
     private String translateModel = "dots3-note-prev";
+
+    /** Tavily 联网搜索 API Key */
+    private String tavilyApiKey = "";
 }
