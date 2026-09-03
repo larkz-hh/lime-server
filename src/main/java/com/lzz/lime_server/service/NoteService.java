@@ -11,6 +11,12 @@ import java.util.List;
 public interface NoteService {
     NoteResponse publishNote(Long userId, PublishNoteRequest request);
 
+    // 编辑笔记
+    NoteResponse updateNote(Long noteId, Long userId, PublishNoteRequest request);
+
+    // 删除笔记
+    void deleteNote(Long noteId, Long userId);
+
     CursorPage<NoteFeedResponse> getFeed(Long cursor, int size, Long userId);
 
     CursorPage<NoteFeedResponse> getFollowingFeed(Long userId, Long cursor, int size);

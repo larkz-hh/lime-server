@@ -19,6 +19,7 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Objects;
 import java.util.Set;
@@ -71,6 +72,94 @@ public class NoteServiceImpl implements NoteService {
             return publishVideoNote(userId, request);
         }
         return publishTextNote(userId, request);
+    }
+
+    /** 编辑笔记（草稿或已发布），计数不变 */
+    @Override
+    @Transactional
+    public NoteResponse updateNote(Long noteId, Long userId, PublishNoteRequest request) {
+        Note note = noteMapper.selectById(noteId);
+        if (note == null) {
+            throw new BusinessException("笔记不存在");
+        }
+        if (!note.getUserId().equals(userId)) {
+            throw new BusinessException("无权编辑该笔记");
+        }
+
+        boolean isVideo = note.getNoteType() != null && note.getNoteType() == Note.TYPE_VIDEO;
+        int newStatus = request.getStatus() != null ? request.getStatus() : 1;
+
+        if (isVideo) {
+            if (request.getVideo() == null || !StringUtils.hasText(request.getVideo().getUrl())) {
+                throw new BusinessException("视频 URL 不能为空");
+            }
+        } else {
+            if (!StringUtils.hasText(request.getTitle()) && !StringUtils.hasText(request.getContent())) {
+                throw new BusinessException("标题和正文不能同时为空");
+            }
+            if (request.getImages() == null || request.getImages().isEmpty()) {
+                throw new BusinessException("至少上传一张图片");
+            }
+        }
+
+        // 更新主表,标题/正文/状态/更新时间，计数不动
+        noteMapper.update(null, new LambdaUpdateWrapper<Note>()
+                .eq(Note::getId, noteId)
+                .set(Note::getTitle, request.getTitle())
+                .set(Note::getContent, request.getContent())
+                .set(Note::getStatus, newStatus)
+                .set(Note::getUpdateTime, LocalDateTime.now()));
+
+        if (isVideo) {
+            PublishNoteRequest.VideoItem v = request.getVideo();
+            NoteVideo nv = new NoteVideo();
+            nv.setOriginalUrl(v.getUrl());
+            nv.setCoverUrl(v.getCoverUrl());
+            nv.setCoverWidth(v.getCoverWidth());
+            nv.setCoverHeight(v.getCoverHeight());
+            nv.setVideoWidth(v.getWidth());
+            nv.setVideoHeight(v.getHeight());
+            nv.setDurationMs(v.getDurationMs());
+            noteVideoMapper.update(nv, new LambdaQueryWrapper<NoteVideo>()
+                    .eq(NoteVideo::getNoteId, noteId));
+        } else {
+            noteImageMapper.delete(new LambdaQueryWrapper<NoteImage>()
+                    .eq(NoteImage::getNoteId, noteId));
+            request.getImages().forEach(item -> {
+                NoteImage img = new NoteImage();
+                img.setNoteId(noteId);
+                img.setUrl(item.getUrl());
+                img.setWidth(item.getWidth());
+                img.setHeight(item.getHeight());
+                img.setSortOrder(item.getSortOrder());
+                noteImageMapper.insert(img);
+            });
+        }
+
+        Note fresh = noteMapper.selectById(noteId);
+        List<NoteImage> images = noteImageMapper.selectList(new LambdaQueryWrapper<NoteImage>()
+                .eq(NoteImage::getNoteId, noteId)
+                .orderByAsc(NoteImage::getSortOrder));
+        NoteVideo nv = null;
+        if (isVideo) {
+            nv = noteVideoMapper.selectOne(new LambdaQueryWrapper<NoteVideo>()
+                    .eq(NoteVideo::getNoteId, noteId));
+        }
+        return toResponse(fresh, images, nv);
+    }
+
+    /** 删除笔记（逻辑删除） */
+    @Override
+    @Transactional
+    public void deleteNote(Long noteId, Long userId) {
+        Note note = noteMapper.selectById(noteId);
+        if (note == null) {
+            throw new BusinessException("笔记不存在");
+        }
+        if (!note.getUserId().equals(userId)) {
+            throw new BusinessException("无权删除该笔记");
+        }
+        noteMapper.deleteById(noteId);
     }
 
     /**
@@ -435,7 +524,7 @@ public class NoteServiceImpl implements NoteService {
     @Override
     public NoteDetailResponse getNoteDetail(Long noteId, Long currentUserId, boolean noView) {
         Note note = noteMapper.selectById(noteId);
-        if (note == null || note.getStatus() != 1) {
+        if (note == null || (note.getStatus() != 1 && !note.getUserId().equals(currentUserId))) {
             throw new BusinessException("笔记不存在");
         }
 
@@ -462,11 +551,9 @@ public class NoteServiceImpl implements NoteService {
                         .eq(NoteFav::getNoteId, noteId)
                         .eq(NoteFav::getUserId, currentUserId)) > 0;
 
-        if (!noView) {
-            // 每次详情访问累计浏览量
+        // 仅已发布笔记计浏览
+        if (note.getStatus() == 1 && !noView) {
             noteMapper.incrementViewCount(noteId);
-
-            // 记录浏览历史,重复浏览同一笔记则更新时间，使其重新出现在历史顶部
             noteViewMapper.upsertView(currentUserId, noteId);
         }
 

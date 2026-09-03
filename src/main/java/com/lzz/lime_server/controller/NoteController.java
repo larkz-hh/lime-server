@@ -99,6 +99,20 @@ public class NoteController {
         return Result.success(resp);
     }
 
+    // 编辑笔记
+    @PutMapping("/{id}")
+    public Result<NoteResponse> updateNote(@PathVariable Long id,
+                                           @Valid @RequestBody PublishNoteRequest request) {
+        return Result.success(noteService.updateNote(id, currentUserId(), request));
+    }
+
+    // 删除笔记
+    @DeleteMapping("/{id}")
+    public Result<Void> deleteNote(@PathVariable Long id) {
+        noteService.deleteNote(id, currentUserId());
+        return Result.success();
+    }
+
     /// 获取笔记详情；noView=true 时不累计浏览量、不写浏览历史（视频流补水场景用）
     @GetMapping("/{id}")
     public Result<NoteDetailResponse> getNoteDetail(@PathVariable Long id,
