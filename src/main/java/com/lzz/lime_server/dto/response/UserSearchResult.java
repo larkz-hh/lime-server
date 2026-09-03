@@ -11,4 +11,6 @@ public class UserSearchResult {
     private String avatar;
     /** 是否为当前登录用户本人 */
     private Boolean isMe;
+    private Boolean isFollowing;
+    private Boolean isFollowedBack;
 }

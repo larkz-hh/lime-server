@@ -13,12 +13,14 @@ import com.lzz.lime_server.dto.response.NoteVideoInfo;
 import com.lzz.lime_server.entity.*;
 import com.lzz.lime_server.mapper.*;
 import com.lzz.lime_server.service.NoteService;
+import com.lzz.lime_server.service.NotificationService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 import java.util.List;
+import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
@@ -41,7 +43,9 @@ public class NoteServiceImpl implements NoteService {
     private final NoteVideoMapper noteVideoMapper;
     private final NoteDanmakuMapper noteDanmakuMapper;
     private final UserMapper userMapper;
+    private final UserFollowMapper userFollowMapper;
     private final StringRedisTemplate redisTemplate;
+    private final NotificationService notificationService;
     private static final String LIKE_COUNT_PREFIX = "note:like:";
     private static final String FAV_COUNT_PREFIX  = "note:fav:";
     private static final long   COUNT_TTL_MINUTES = 10;
@@ -209,6 +213,8 @@ public class NoteServiceImpl implements NoteService {
             items.forEach(item -> item.setLiked(likedNoteIds.contains(item.getId())));
         }
 
+        fillAuthorFollow(items, currentUserId);
+
         Long nextCursor = hasMore ? items.getLast().getId() : null;
         return CursorPage.of(items, nextCursor, hasMore);
     }
@@ -235,6 +241,7 @@ public class NoteServiceImpl implements NoteService {
         // 将数据库返回的扁平化投影对象转换为面向前端的结构化响应对象
         List<NoteFeedResponse> items = rows.stream().map(this::toFeedItem).toList();
         fillLiked(items, userId);
+        fillAuthorFollow(items, userId);
 
         // 还有下一页，将当前页最后一条笔记的 ID 作为下一次请求的游标
         Long nextCursor = hasMore ? items.getLast().getId() : null;
@@ -266,6 +273,7 @@ public class NoteServiceImpl implements NoteService {
 
         List<NoteFeedResponse> items = rows.stream().map(this::toFeedItem).toList();
         fillLiked(items, userId);
+        fillAuthorFollow(items, userId);
 
         Long nextCursor = hasMore ? items.getLast().getId() : null;
         return CursorPage.of(items, nextCursor, hasMore);
@@ -448,7 +456,10 @@ public class NoteServiceImpl implements NoteService {
                     new LambdaQueryWrapper<NoteDanmaku>().eq(NoteDanmaku::getNoteId, noteId)));
         }
 
-        return buildDetailResponse(note, images, author, likeCount, favCount, liked, favorited, noteVideo, danmakuCount);
+        NoteDetailResponse resp = buildDetailResponse(note, images, author, likeCount, favCount,
+                liked, favorited, noteVideo, danmakuCount);
+        fillDetailAuthorFollow(resp, currentUserId);
+        return resp;
     }
 
 
@@ -480,7 +491,7 @@ public class NoteServiceImpl implements NoteService {
     @Override
     @Transactional
     public void likeNote(Long noteId, Long userId) {
-        ensureNoteExists(noteId);
+        Note note = ensureNoteExists(noteId);
 
         boolean alreadyLiked = noteLikeMapper.selectCount(
                 new LambdaQueryWrapper<NoteLike>()
@@ -500,6 +511,9 @@ public class NoteServiceImpl implements NoteService {
 
         // 写后删除缓存，下次读取时再重新加载
         redisTemplate.delete(LIKE_COUNT_PREFIX + noteId);
+
+        // 点赞后通知笔记作者
+        notificationService.notifyUser(userId, note.getUserId(), Notification.TYPE_LIKE, noteId, null, null);
     }
 
     /**
@@ -533,7 +547,7 @@ public class NoteServiceImpl implements NoteService {
     @Override
     @Transactional
     public void favoriteNote(Long noteId, Long userId) {
-        ensureNoteExists(noteId);
+        Note note = ensureNoteExists(noteId);
 
         boolean alreadyFav = noteFavMapper.selectCount(
                 new LambdaQueryWrapper<NoteFav>()
@@ -551,6 +565,9 @@ public class NoteServiceImpl implements NoteService {
                 .setSql("fav_count = fav_count + 1"));
 
         redisTemplate.delete(FAV_COUNT_PREFIX + noteId);
+
+        // 收藏后通知笔记作者
+        notificationService.notifyUser(userId, note.getUserId(), Notification.TYPE_FAVORITE, noteId, null, null);
     }
 
     /**
@@ -654,6 +671,8 @@ public class NoteServiceImpl implements NoteService {
             items.forEach(item -> item.setLiked(likedNoteIds.contains(item.getId())));
         }
 
+        fillAuthorFollow(items, userId);
+
         Long nextCursor = hasMore ? rows.getLast().getCursorId() : null;
         return CursorPage.of(items, nextCursor, hasMore);
     }
@@ -711,16 +730,60 @@ public class NoteServiceImpl implements NoteService {
             items.forEach(item -> item.setLiked(likedNoteIds.contains(item.getId())));
         }
 
+        fillAuthorFollow(items, currentUserId);
+
         Long nextCursor = hasMore ? rows.getLast().getCursorId() : null;
         return CursorPage.of(items, nextCursor, hasMore);
     }
 
-    /** 校验笔记是否存在且已发布。*/
-    private void ensureNoteExists(Long noteId) {
+    /** 校验笔记是否存在且已发布，返回笔记实体。*/
+    private Note ensureNoteExists(Long noteId) {
         Note note = noteMapper.selectById(noteId);
         if (note == null || note.getStatus() != 1) {
             throw new BusinessException("笔记不存在");
         }
+        return note;
+    }
+
+    /**
+     * 批量填充卡片作者的关注状态
+     */
+    private void fillAuthorFollow(List<NoteFeedResponse> items, Long currentUserId) {
+        if (items.isEmpty() || currentUserId == null) return;
+        List<Long> authorIds = items.stream()
+                .map(NoteFeedResponse::getAuthor)
+                .filter(Objects::nonNull)
+                .map(NoteFeedResponse.AuthorBrief::getId)
+                .distinct().toList();
+        if (authorIds.isEmpty()) return;
+
+        // 当前用户关注的作者集合
+        Set<Long> followedIds = userFollowMapper.selectList(
+                        new LambdaQueryWrapper<UserFollow>()
+                                .eq(UserFollow::getFollowerId, currentUserId)
+                                .in(UserFollow::getFolloweeId, authorIds))
+                .stream().map(UserFollow::getFolloweeId).collect(Collectors.toSet());
+        // 关注了当前用户的作者集合
+        Set<Long> followedBackIds = userFollowMapper.selectList(
+                        new LambdaQueryWrapper<UserFollow>()
+                                .eq(UserFollow::getFolloweeId, currentUserId)
+                                .in(UserFollow::getFollowerId, authorIds))
+                .stream().map(UserFollow::getFollowerId).collect(Collectors.toSet());
+
+        items.forEach(item -> {
+            if (item.getAuthor() != null) {
+                item.getAuthor().setIsFollowing(followedIds.contains(item.getAuthor().getId()));
+                item.getAuthor().setIsFollowedBack(followedBackIds.contains(item.getAuthor().getId()));
+            }
+        });
+    }
+
+    /** 填充笔记详情作者的关注状态（*/
+    private void fillDetailAuthorFollow(NoteDetailResponse resp, Long currentUserId) {
+        NoteDetailResponse.AuthorInfo author = resp.getAuthor();
+        if (author == null || currentUserId == null || currentUserId.equals(author.getId())) return;
+        author.setIsFollowing(userFollowMapper.existsFollow(currentUserId, author.getId()) > 0);
+        author.setIsFollowedBack(userFollowMapper.existsFollow(author.getId(), currentUserId) > 0);
     }
 
     /**
