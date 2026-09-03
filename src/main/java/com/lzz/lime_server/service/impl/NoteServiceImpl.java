@@ -280,6 +280,30 @@ public class NoteServiceImpl implements NoteService {
     }
 
     /**
+     * 关注动态,关注的人发布的笔记，游标分页。
+     * <p>作者均为已关注的人，isFollowing 恒为 true，isFollowedBack 标记是否互关。</p>
+     *
+     * @param userId 当前登录用户 ID
+     * @param cursor 上一页最后一条笔记 ID，首次传 null
+     * @param size   每页条数
+     * @return 笔记卡片分页结果
+     */
+    @Override
+    public CursorPage<NoteFeedResponse> getFollowingFeed(Long userId, Long cursor, int size) {
+        List<NoteMapper.NoteFeedRow> rows = noteMapper.selectFollowingFeed(userId, cursor, size + 1);
+
+        boolean hasMore = rows.size() > size;
+        if (hasMore) rows = rows.subList(0, size);
+
+        List<NoteFeedResponse> items = rows.stream().map(this::toFeedItem).toList();
+        fillLiked(items, userId);
+        fillAuthorFollow(items, userId);
+
+        Long nextCursor = hasMore ? items.getLast().getId() : null;
+        return CursorPage.of(items, nextCursor, hasMore);
+    }
+
+    /**
      * 将数据库投影行转换为信息流卡片响应（feed 与 video-feed 共用）。
      *
      * @param row 查询投影行
