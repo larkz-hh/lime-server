@@ -442,4 +442,21 @@ public interface NoteMapper extends BaseMapper<Note> {
             LIMIT #{size}
             """)
     List<String> selectSuggestTitles(@Param("prefix") String prefix, @Param("size") int size);
+
+    /**
+     * 用户主页统计，已发布笔记数 + 笔记收到的总点赞/收藏。
+     */
+    @Select("SELECT COUNT(*) AS note_count, " +
+            "COALESCE(SUM(like_count), 0) AS like_total, " +
+            "COALESCE(SUM(fav_count), 0) AS fav_total " +
+            "FROM note WHERE user_id = #{userId} AND status = 1 AND deleted = 0")
+    UserNoteStats selectUserNoteStats(@Param("userId") Long userId);
+
+    // 用户主页统计投影
+    @Data
+    class UserNoteStats {
+        private Long noteCount;
+        private Long likeTotal;
+        private Long favTotal;
+    }
 }

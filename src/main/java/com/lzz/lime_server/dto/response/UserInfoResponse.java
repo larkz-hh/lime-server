@@ -23,4 +23,11 @@ public class UserInfoResponse {
     private Boolean likePrivate;
     /** 收藏列表是否对外公开：false=公开，true=私密 */
     private Boolean favPrivate;
+    private Long followingCount;
+    private Long followerCount;
+    private Long noteCount;
+    private Long totalLikeCount;
+    private Long totalFavCount;
+    private Boolean isFollowing;
+    private Boolean isFollowedBack;
 }

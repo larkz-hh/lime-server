@@ -7,6 +7,8 @@ import com.lzz.lime_server.dto.request.DeleteAccountRequest;
 import com.lzz.lime_server.dto.request.UpdateProfileRequest;
 import com.lzz.lime_server.dto.response.UserInfoResponse;
 import com.lzz.lime_server.entity.User;
+import com.lzz.lime_server.mapper.NoteMapper;
+import com.lzz.lime_server.mapper.UserFollowMapper;
 import com.lzz.lime_server.mapper.UserMapper;
 import com.lzz.lime_server.service.AuthService;
 import com.lzz.lime_server.service.FileUploadService;
@@ -35,6 +37,8 @@ public class UserServiceImpl implements UserService {
     private static final String EMAIL_CODE_KEY_PREFIX = "email:code:";
 
     private final UserMapper userMapper;
+    private final UserFollowMapper userFollowMapper;
+    private final NoteMapper noteMapper;
     private final FileUploadService fileUploadService;
     private final PasswordEncoder passwordEncoder;
     private final AuthService authService;
@@ -53,7 +57,7 @@ public class UserServiceImpl implements UserService {
         if (user == null) {
             throw new BusinessException(ResultCode.NOT_FOUND);
         }
-        return toResponse(user);
+        return toResponse(user, null);
     }
 
     /**
@@ -64,12 +68,12 @@ public class UserServiceImpl implements UserService {
      * @throws BusinessException 当用户不存在时抛出 NOT_FOUND 异常
      */
     @Override
-    public UserInfoResponse getUserProfile(Long targetUserId) {
+    public UserInfoResponse getUserProfile(Long targetUserId, Long currentUserId) {
         User user = userMapper.selectById(targetUserId);
         if (user == null) {
             throw new BusinessException(ResultCode.NOT_FOUND);
         }
-        UserInfoResponse resp = toResponse(user);
+        UserInfoResponse resp = toResponse(user, currentUserId);
         resp.setEmail(null);
         return resp;
     }
@@ -124,7 +128,7 @@ public class UserServiceImpl implements UserService {
         if (changed) {
             userMapper.updateById(user);
         }
-        return toResponse(user);
+        return toResponse(user, null);
     }
 
     /**
@@ -148,7 +152,7 @@ public class UserServiceImpl implements UserService {
         String avatarUrl = fileUploadService.uploadAvatar(file);
         user.setAvatar(avatarUrl);
         userMapper.updateById(user);
-        return toResponse(user);
+        return toResponse(user, null);
     }
 
     /**
@@ -172,7 +176,7 @@ public class UserServiceImpl implements UserService {
         String backgroundUrl = fileUploadService.uploadBackground(file);
         user.setBackgroundImage(backgroundUrl);
         userMapper.updateById(user);
-        return toResponse(user);
+        return toResponse(user, null);
     }
 
 
@@ -256,7 +260,7 @@ public class UserServiceImpl implements UserService {
      * @param user 数据库用户实体对象
      * @return 转换后的用户信息响应对象
      */
-    private UserInfoResponse toResponse(User user) {
+    private UserInfoResponse toResponse(User user, Long currentUserId) {
         UserInfoResponse resp = new UserInfoResponse();
         resp.setId(user.getId());
         resp.setEmail(user.getEmail());
@@ -271,6 +275,16 @@ public class UserServiceImpl implements UserService {
         resp.setRole(user.getRole());
         resp.setLikePrivate(user.getLikePrivate());
         resp.setFavPrivate(user.getFavPrivate());
+        resp.setFollowingCount(userFollowMapper.countFollowing(user.getId()));
+        resp.setFollowerCount(userFollowMapper.countFollowers(user.getId()));
+        NoteMapper.UserNoteStats stats = noteMapper.selectUserNoteStats(user.getId());
+        resp.setNoteCount(stats.getNoteCount());
+        resp.setTotalLikeCount(stats.getLikeTotal());
+        resp.setTotalFavCount(stats.getFavTotal());
+        if (currentUserId != null && !currentUserId.equals(user.getId())) {
+            resp.setIsFollowing(userFollowMapper.existsFollow(currentUserId, user.getId()) > 0);
+            resp.setIsFollowedBack(userFollowMapper.existsFollow(user.getId(), currentUserId) > 0);
+        }
         return resp;
     }
 }
