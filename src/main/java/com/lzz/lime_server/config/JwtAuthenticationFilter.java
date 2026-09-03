@@ -68,6 +68,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             // 截取掉 "Bearer " 前缀，返回真正的 Token 字符串
             return bearerToken.substring(BEARER_PREFIX.length());
         }
-        return null;
+        // EventSource 无法自定义请求头，token 通过 access_token 查询参数传入
+        return request.getParameter("access_token");
     }
 }

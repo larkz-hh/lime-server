@@ -68,6 +68,8 @@ rocketmq:
   name-server: ${ROCKETMQ_NAMESRV:localhost:9876}
   producer:
     group: lime-producer-group
+  consumer:
+    group: lime-notification-group
 
 # ===== 自定义配置（ @ConfigurationProperties 类读取） =====
 
