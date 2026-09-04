@@ -75,7 +75,7 @@ public class NoteServiceImpl implements NoteService {
         return publishTextNote(userId, request);
     }
 
-    /** 编辑笔记（草稿或已发布），计数不变 */
+    /** 编辑笔记，已发布存草稿建副本，草稿发布覆盖原笔记或就地发布 */
     @Override
     @Transactional
     public NoteResponse updateNote(Long noteId, Long userId, PublishNoteRequest request) {
@@ -89,26 +89,93 @@ public class NoteServiceImpl implements NoteService {
 
         boolean isVideo = note.getNoteType() != null && note.getNoteType() == Note.TYPE_VIDEO;
         int newStatus = request.getStatus() != null ? request.getStatus() : 1;
+        validateContent(request, isVideo);
 
-        if (isVideo) {
-            if (request.getVideo() == null || !StringUtils.hasText(request.getVideo().getUrl())) {
-                throw new BusinessException("视频 URL 不能为空");
+        if (note.getStatus() == 1) {
+            // 编辑已发布，存草稿新建草稿副本；，接发布就地覆盖
+            if (newStatus == 0) {
+                return saveAsDraft(note, request, isVideo);
             }
-        } else {
-            if (!StringUtils.hasText(request.getTitle()) && !StringUtils.hasText(request.getContent())) {
-                throw new BusinessException("标题和正文不能同时为空");
-            }
-            if (request.getImages() == null || request.getImages().isEmpty()) {
-                throw new BusinessException("至少上传一张图片");
-            }
+            return updateInPlace(noteId, request, isVideo, 1);
         }
 
-        // 更新主表,标题/正文/状态/更新时间，计数不动
+        // 编辑草稿
+        if (newStatus == 0) {
+            return updateInPlace(noteId, request, isVideo, 0);
+        }
+        // 发布草稿
+        if (note.getSourceNoteId() != null) {
+            Note original = noteMapper.selectById(note.getSourceNoteId());
+            if (original != null) {
+                // 覆盖原笔记，删草稿
+                updateInPlace(original.getId(), request, isVideo, 1);
+                noteImageMapper.delete(new LambdaQueryWrapper<NoteImage>().eq(NoteImage::getNoteId, noteId));
+                if (isVideo) {
+                    noteVideoMapper.delete(new LambdaQueryWrapper<NoteVideo>().eq(NoteVideo::getNoteId, noteId));
+                }
+                noteMapper.deleteById(noteId);
+                Note fresh = noteMapper.selectById(original.getId());
+                return toResponse(fresh, loadImages(original.getId()), loadVideo(original.getId()));
+            }
+            updateInPlace(noteId, request, isVideo, 1);
+            noteMapper.update(null, new LambdaUpdateWrapper<Note>()
+                    .eq(Note::getId, noteId).set(Note::getSourceNoteId, null));
+            return toResponse(noteMapper.selectById(noteId), loadImages(noteId), loadVideo(noteId));
+        }
+        return updateInPlace(noteId, request, isVideo, 1);
+    }
+
+    /** 编辑已发布笔记存草稿，新建草稿副本，源笔记不动 */
+    private NoteResponse saveAsDraft(Note source, PublishNoteRequest request, boolean isVideo) {
+        Note draft = new Note();
+        draft.setUserId(source.getUserId());
+        draft.setTitle(request.getTitle());
+        draft.setContent(request.getContent());
+        draft.setNoteType(source.getNoteType());
+        draft.setStatus(0);
+        draft.setSourceNoteId(source.getId());
+        draft.setLikeCount(0);
+        draft.setFavCount(0);
+        draft.setViewCount(0);
+        draft.setCommentCount(0);
+        noteMapper.insert(draft);
+
+        if (isVideo) {
+            PublishNoteRequest.VideoItem v = request.getVideo();
+            NoteVideo nv = new NoteVideo();
+            nv.setNoteId(draft.getId());
+            nv.setOriginalUrl(v.getUrl());
+            nv.setCoverUrl(v.getCoverUrl());
+            nv.setCoverWidth(v.getCoverWidth());
+            nv.setCoverHeight(v.getCoverHeight());
+            nv.setVideoWidth(v.getWidth());
+            nv.setVideoHeight(v.getHeight());
+            nv.setDurationMs(v.getDurationMs());
+            nv.setTranscodeStatus(2);
+            noteVideoMapper.insert(nv);
+        } else {
+            Map<String, NoteImage> oldByUrl = loadImagesMap(source.getId());
+            request.getImages().forEach(item -> {
+                NoteImage img = new NoteImage();
+                img.setNoteId(draft.getId());
+                img.setUrl(item.getUrl());
+                NoteImage old = oldByUrl.get(item.getUrl());
+                img.setWidth(item.getWidth() != null ? item.getWidth() : (old != null ? old.getWidth() : null));
+                img.setHeight(item.getHeight() != null ? item.getHeight() : (old != null ? old.getHeight() : null));
+                img.setSortOrder(item.getSortOrder());
+                noteImageMapper.insert(img);
+            });
+        }
+        return toResponse(draft, loadImages(draft.getId()), loadVideo(draft.getId()));
+    }
+
+    /** 就地更新主表与图片/视频，计数不变 */
+    private NoteResponse updateInPlace(Long noteId, PublishNoteRequest request, boolean isVideo, int status) {
         noteMapper.update(null, new LambdaUpdateWrapper<Note>()
                 .eq(Note::getId, noteId)
                 .set(Note::getTitle, request.getTitle())
                 .set(Note::getContent, request.getContent())
-                .set(Note::getStatus, newStatus)
+                .set(Note::getStatus, status)
                 .set(Note::getUpdateTime, LocalDateTime.now()));
 
         if (isVideo) {
@@ -121,17 +188,10 @@ public class NoteServiceImpl implements NoteService {
             nv.setVideoWidth(v.getWidth());
             nv.setVideoHeight(v.getHeight());
             nv.setDurationMs(v.getDurationMs());
-            noteVideoMapper.update(nv, new LambdaQueryWrapper<NoteVideo>()
-                    .eq(NoteVideo::getNoteId, noteId));
+            noteVideoMapper.update(nv, new LambdaQueryWrapper<NoteVideo>().eq(NoteVideo::getNoteId, noteId));
         } else {
-            // 旧图宽高映射，未传宽高时沿用旧值
-            Map<String, NoteImage> oldByUrl = noteImageMapper.selectList(
-                            new LambdaQueryWrapper<NoteImage>()
-                                    .eq(NoteImage::getNoteId, noteId))
-                    .stream().collect(Collectors.toMap(NoteImage::getUrl, img -> img, (a, b) -> a));
-
-            noteImageMapper.delete(new LambdaQueryWrapper<NoteImage>()
-                    .eq(NoteImage::getNoteId, noteId));
+            Map<String, NoteImage> oldByUrl = loadImagesMap(noteId);
+            noteImageMapper.delete(new LambdaQueryWrapper<NoteImage>().eq(NoteImage::getNoteId, noteId));
             request.getImages().forEach(item -> {
                 NoteImage img = new NoteImage();
                 img.setNoteId(noteId);
@@ -143,17 +203,38 @@ public class NoteServiceImpl implements NoteService {
                 noteImageMapper.insert(img);
             });
         }
-
         Note fresh = noteMapper.selectById(noteId);
-        List<NoteImage> images = noteImageMapper.selectList(new LambdaQueryWrapper<NoteImage>()
-                .eq(NoteImage::getNoteId, noteId)
-                .orderByAsc(NoteImage::getSortOrder));
-        NoteVideo nv = null;
+        return toResponse(fresh, loadImages(noteId), loadVideo(noteId));
+    }
+
+    /** 校验编辑内容*/
+    private void validateContent(PublishNoteRequest request, boolean isVideo) {
         if (isVideo) {
-            nv = noteVideoMapper.selectOne(new LambdaQueryWrapper<NoteVideo>()
-                    .eq(NoteVideo::getNoteId, noteId));
+            if (request.getVideo() == null || !StringUtils.hasText(request.getVideo().getUrl())) {
+                throw new BusinessException("视频 URL 不能为空");
+            }
+        } else {
+            if (!StringUtils.hasText(request.getTitle()) && !StringUtils.hasText(request.getContent())) {
+                throw new BusinessException("标题和正文不能同时为空");
+            }
+            if (request.getImages() == null || request.getImages().isEmpty()) {
+                throw new BusinessException("至少上传一张图片");
+            }
         }
-        return toResponse(fresh, images, nv);
+    }
+
+    private Map<String, NoteImage> loadImagesMap(Long noteId) {
+        return noteImageMapper.selectList(new LambdaQueryWrapper<NoteImage>().eq(NoteImage::getNoteId, noteId))
+                .stream().collect(Collectors.toMap(NoteImage::getUrl, img -> img, (a, b) -> a));
+    }
+
+    private List<NoteImage> loadImages(Long noteId) {
+        return noteImageMapper.selectList(new LambdaQueryWrapper<NoteImage>()
+                .eq(NoteImage::getNoteId, noteId).orderByAsc(NoteImage::getSortOrder));
+    }
+
+    private NoteVideo loadVideo(Long noteId) {
+        return noteVideoMapper.selectOne(new LambdaQueryWrapper<NoteVideo>().eq(NoteVideo::getNoteId, noteId));
     }
 
     /** 删除笔记（逻辑删除） */

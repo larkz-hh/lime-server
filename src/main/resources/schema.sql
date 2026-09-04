@@ -5,6 +5,7 @@ CREATE TABLE IF NOT EXISTS `note` (
     `content`     TEXT,
     `note_type`   TINYINT      NOT NULL DEFAULT 1 COMMENT '1=图文, 2=视频',
     `status`      TINYINT      NOT NULL DEFAULT 1 COMMENT '0=草稿, 1=已发布',
+    `source_note_id` BIGINT    NULL COMMENT '草稿来源笔记 id，编辑已发布笔记产生的草稿指向原笔记',
     `like_count`    INT          NOT NULL DEFAULT 0,
     `fav_count`     INT          NOT NULL DEFAULT 0,
     `view_count`    INT          NOT NULL DEFAULT 0,

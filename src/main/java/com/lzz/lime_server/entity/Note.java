@@ -29,6 +29,9 @@ public class Note {
     // 0=草稿,1=已发布
     private Integer status;
 
+    // 草稿来源笔记 id
+    private Long sourceNoteId;
+
     private Integer likeCount;
 
     private Integer favCount;
