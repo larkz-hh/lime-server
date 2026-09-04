@@ -21,6 +21,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
@@ -123,14 +124,21 @@ public class NoteServiceImpl implements NoteService {
             noteVideoMapper.update(nv, new LambdaQueryWrapper<NoteVideo>()
                     .eq(NoteVideo::getNoteId, noteId));
         } else {
+            // 旧图宽高映射，未传宽高时沿用旧值
+            Map<String, NoteImage> oldByUrl = noteImageMapper.selectList(
+                            new LambdaQueryWrapper<NoteImage>()
+                                    .eq(NoteImage::getNoteId, noteId))
+                    .stream().collect(Collectors.toMap(NoteImage::getUrl, img -> img, (a, b) -> a));
+
             noteImageMapper.delete(new LambdaQueryWrapper<NoteImage>()
                     .eq(NoteImage::getNoteId, noteId));
             request.getImages().forEach(item -> {
                 NoteImage img = new NoteImage();
                 img.setNoteId(noteId);
                 img.setUrl(item.getUrl());
-                img.setWidth(item.getWidth());
-                img.setHeight(item.getHeight());
+                NoteImage old = oldByUrl.get(item.getUrl());
+                img.setWidth(item.getWidth() != null ? item.getWidth() : (old != null ? old.getWidth() : null));
+                img.setHeight(item.getHeight() != null ? item.getHeight() : (old != null ? old.getHeight() : null));
                 img.setSortOrder(item.getSortOrder());
                 noteImageMapper.insert(img);
             });
