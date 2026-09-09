@@ -128,6 +128,14 @@ public class JwtUtil {
     }
 
     /**
+     * Token 签发时间戳（毫秒）
+     */
+    public long getIssuedAtMillis(String token) {
+        Claims claims = parseClaims(token);
+        return claims.getIssuedAt().getTime();
+    }
+
+    /**
      * 解析 Token 的核心私有方法
      * @param token JWT 字符串
      * @return Token 的载荷信息 (Claims)

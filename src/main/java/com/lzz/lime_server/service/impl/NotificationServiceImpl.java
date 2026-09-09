@@ -226,6 +226,26 @@ public class NotificationServiceImpl implements NotificationService {
     }
 
     /**
+     * 强制旧设备下线：向该用户所有在线 SSE 连接推送 kick 并关闭。
+     */
+    @Override
+    public void kickUser(Long userId) {
+        List<SseEmitter> list = emitters.remove(userId);
+        if (list == null || list.isEmpty()) return;
+        String payload = "{\"message\":\"您的账号已在其他设备登录\"}";
+        for (SseEmitter e : list) {
+            try {
+                e.send(SseEmitter.event().name("kick").data(payload));
+            } catch (Exception ignored) {
+            }
+            try {
+                e.complete();
+            } catch (Exception ignored) {
+            }
+        }
+    }
+
+    /**
      * 推送最新分组未读数
      */
     private void pushUnread(Long userId) {

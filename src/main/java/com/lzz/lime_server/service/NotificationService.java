@@ -39,4 +39,7 @@ public interface NotificationService {
 
     // SSE 订阅（实时推送未读数）
     SseEmitter subscribe(Long userId);
+
+    // 强制旧设备下线：向该用户 SSE 连接推送 kick 并关闭
+    void kickUser(Long userId);
 }
