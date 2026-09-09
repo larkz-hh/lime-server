@@ -16,13 +16,19 @@ public interface NotificationMapper extends BaseMapper<Notification> {
             <script>
             SELECT n.id, n.type, n.note_id, n.comment_id, n.content, n.is_read, n.create_time,
                    u.id AS sender_id, u.nickname AS sender_nickname, u.avatar AS sender_avatar,
-                   (SELECT img.url FROM note_image img
-                     WHERE img.note_id = n.note_id
-                     ORDER BY img.sort_order ASC LIMIT 1) AS note_cover,
+                   nt.note_type AS note_type,
+                   (SELECT COALESCE(
+                        (SELECT img.url FROM note_image img
+                          WHERE img.note_id = n.note_id
+                          ORDER BY img.sort_order ASC LIMIT 1),
+                        (SELECT nv.cover_url FROM note_video nv
+                          WHERE nv.note_id = n.note_id LIMIT 1)
+                    )) AS note_cover,
                    pc.id AS parent_comment_id,
                    LEFT(pc.content, 200) AS reply_to_content
             FROM notification n
             JOIN `user` u ON u.id = n.sender_id
+            LEFT JOIN note nt ON nt.id = n.note_id
             LEFT JOIN note_comment c ON c.id = n.comment_id
             LEFT JOIN note_comment pc ON pc.id = c.parent_id
             WHERE n.receiver_id = #{receiverId}
@@ -46,6 +52,7 @@ public interface NotificationMapper extends BaseMapper<Notification> {
             @Result(property = "senderId",       column = "sender_id"),
             @Result(property = "senderNickname", column = "sender_nickname"),
             @Result(property = "senderAvatar",   column = "sender_avatar"),
+            @Result(property = "noteType",       column = "note_type"),
             @Result(property = "noteCover",      column = "note_cover"),
             @Result(property = "parentCommentId",  column = "parent_comment_id"),
             @Result(property = "replyToContent",   column = "reply_to_content")
@@ -103,6 +110,7 @@ public interface NotificationMapper extends BaseMapper<Notification> {
         private String senderAvatar;
         // 关联笔记封面图 URL
         private String noteCover;
+        private Integer noteType;
         // 被回复的父评论 id（type=4 时有值）
         private Long parentCommentId;
         // 被回复的原评论正文（type=4 时有值）

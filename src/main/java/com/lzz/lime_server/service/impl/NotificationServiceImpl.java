@@ -6,6 +6,7 @@ import com.lzz.lime_server.dto.response.CursorPage;
 import com.lzz.lime_server.dto.response.NotificationResponse;
 import com.lzz.lime_server.entity.Notification;
 import com.lzz.lime_server.mapper.NotificationMapper;
+import com.lzz.lime_server.mapper.UserFollowMapper;
 import com.lzz.lime_server.mq.InteractionEvent;
 import com.lzz.lime_server.service.NotificationService;
 import lombok.RequiredArgsConstructor;
@@ -37,6 +38,7 @@ public class NotificationServiceImpl implements NotificationService {
     private final StringRedisTemplate redisTemplate;
     private final RocketMQTemplate rocketMQTemplate;
     private final ObjectMapper objectMapper;
+    private final UserFollowMapper userFollowMapper;
 
     // 互动事件 topic
     private static final String TOPIC = "interaction-topic";
@@ -133,8 +135,16 @@ public class NotificationServiceImpl implements NotificationService {
             r.setSenderNickname(row.getSenderNickname());
             r.setSenderAvatar(row.getSenderAvatar());
             r.setNoteCover(row.getNoteCover());
+            r.setNoteType(row.getNoteType());
             r.setParentCommentId(row.getParentCommentId());
             r.setReplyToContent(row.getReplyToContent());
+            // 关注通知：附带与触发者的互关状态
+            if (row.getType() == Notification.TYPE_FOLLOW && row.getSenderId() != null) {
+                boolean following = userFollowMapper.existsFollow(userId, row.getSenderId()) > 0;
+                boolean followedBack = userFollowMapper.existsFollow(row.getSenderId(), userId) > 0;
+                r.setIsFollowing(following);
+                r.setIsFollowedBack(followedBack);
+            }
             return r;
         }).toList();
 

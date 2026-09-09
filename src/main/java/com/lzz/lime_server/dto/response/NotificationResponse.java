@@ -15,6 +15,10 @@ public class NotificationResponse {
 
     private Long noteId;
 
+    // 笔记类型：1=图文 2=视频
+
+    private Integer noteType;
+
     private Long commentId;
 
     // 通知摘要文本
@@ -38,4 +42,8 @@ public class NotificationResponse {
     private Long senderId;
     private String senderNickname;
     private String senderAvatar;
+
+    // 仅关注通知（type=5）填充
+    private Boolean isFollowing;
+    private Boolean isFollowedBack;
 }
