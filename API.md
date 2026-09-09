@@ -397,7 +397,14 @@ Access Token 过期后，用 Refresh Token 换取新的双 Token。
 
 `PUT /api/user/me/password`
 
-支持两种身份验证方式，`oldPassword` 与 `code` 二选一。使用验证码方式前需先调用 `/api/auth/send-code` 向当前账号绑定的邮箱发送验证码。修改成功后当前 Token 立即失效，客户端需重新登录获取新 Token。
+**需要登录**：是
+
+支持两种身份验证方式，`oldPassword` 与 `code` 二选一。使用验证码方式前需先调用 `/api/auth/send-code` 向当前账号绑定的邮箱发送验证码。
+
+**成功后行为**：
+
+- 服务端将凭证版本 +1：**所有旧 access token / refresh token 立即失效**（其它设备下次请求即 401，无法再续期），并向该账号仍在线的 SSE 连接推送 `kick` 事件（`reason=password_changed`，客户端应**静默处理**：不弹下线提醒，仅用新 token 重连 SSE）。
+- **发起改密的当前会话不登出**：响应 `data` 直接返回一组新签发的双 Token（结构同登录接口），客户端无缝替换本地凭证即可，**无需重新登录**——因此不会出现"改密码后重登被误踢下线"。
 
 **原密码方式**
 
@@ -429,9 +436,19 @@ Access Token 过期后，用 Refresh Token 换取新的双 Token。
 {
   "code": 200,
   "message": "操作成功",
-  "data": null
+  "data": {
+    "accessToken": "eyJhbGciOiJIUzI1NiJ9...",
+    "refreshToken": "eyJhbGciOiJIUzI1NiJ9...",
+    "expire": 7200
+  }
 }
 ```
+
+| 字段         | 类型   | 说明                                      |
+|--------------|--------|-------------------------------------------|
+| accessToken  | string | 新签发的 Access Token（旧 token 已全部失效） |
+| refreshToken | string | 新签发的 Refresh Token（旧 refresh token 已失效） |
+| expire       | number | Access Token 有效期（秒）                   |
 
 ---
 
@@ -2263,6 +2280,22 @@ done 事件字段：
 event: unread
 data: {"total":12,"likeFav":7,"follow":2,"comment":3}
 ```
+
+**kick 事件（强制下线）**
+
+账号的活跃会话被顶掉时，服务端向该账号**所有在线 SSE 连接**推送 `kick` 事件并关闭连接，`data` 为 JSON：
+
+```
+event: kick
+data: {"reason":"login_elsewhere","message":"您的账号已在其他设备登录"}
+```
+
+| reason            | 触发场景                                     | 客户端处理建议                                                                 |
+|-------------------|----------------------------------------------|--------------------------------------------------------------------------------|
+| `login_elsewhere` | 账号在其它设备/会话登录，本会话被顶掉         | 弹「下线提醒」并清除本地登录态（注意：同一设备「清 token 后重新登录」也会触发，旧会话残留连接会先收到本事件，需结合本地会话状态判断） |
+| `password_changed`| 修改密码后的旧会话清理（含发起改密设备的旧连接） | **静默处理**：不弹窗、不清除登录态；用改密响应返回的新 token 重连 SSE 即可     |
+
+> 说明：`login_elsewhere` 事件在每次登录成功时由服务端同步触发（`/api/auth/login`），只打到当时仍挂在线的旧连接上；新登录会话本身不会收到该事件。修改密码接口（`PUT /api/user/me/password`）成功后不再强制登出当前设备，而是返回新双 Token 无缝续用，并向旧连接推送 `reason=password_changed` 的 kick。
 
 ---
 
