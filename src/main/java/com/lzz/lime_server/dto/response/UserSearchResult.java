@@ -13,4 +13,5 @@ public class UserSearchResult {
     private Boolean isMe;
     private Boolean isFollowing;
     private Boolean isFollowedBack;
+    private Long followerCount;
 }

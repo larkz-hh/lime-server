@@ -8,11 +8,19 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.List;
+
 @RestController
 @RequiredArgsConstructor
 public class FollowController {
 
     private final FollowService followService;
+
+    // 互关好友列表，供群聊拉人
+    @GetMapping("/api/user/mutual-friends")
+    public Result<List<UserInfoResponse>> getMutualFriends() {
+        return Result.success(followService.getMutualFriends(currentUserId()));
+    }
 
     // 关注用户
     @PostMapping("/api/user/{userId}/follow")
@@ -39,6 +47,7 @@ public class FollowController {
     }
 
     // 粉丝列表（游标分页）
+    @GetMapping("/api/user/{userId}/followers")
     public Result<CursorPage<UserInfoResponse>> getFollowerList(
             @PathVariable Long userId,
             @RequestParam(required = false) Long cursor,
@@ -49,6 +58,8 @@ public class FollowController {
 
     // 从 Spring Security 上下文取当前登录用户 ID
     private Long currentUserId() {
-        return (Long) SecurityContextHolder.getContext().getAuthentication().getPrincipal();
+        var authentication = SecurityContextHolder.getContext().getAuthentication();
+        Object principal = authentication == null ? null : authentication.getPrincipal();
+        return principal instanceof Long ? (Long) principal : null;
     }
 }

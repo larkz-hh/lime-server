@@ -24,6 +24,7 @@ import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
@@ -241,6 +242,16 @@ public class SearchServiceImpl implements SearchService {
                     item.setIsFollowedBack(followedBackIds.contains(item.getId()));
                 }
             });
+        }
+
+        List<Long> pageIds = items.stream().map(UserSearchResult::getId).toList();
+        if (!pageIds.isEmpty()) {
+            Map<Long, Long> followerCountMap = userFollowMapper.countFollowersBatch(pageIds).stream()
+                    .collect(Collectors.toMap(
+                            UserFollowMapper.FollowerCountRow::getUserId,
+                            UserFollowMapper.FollowerCountRow::getCnt,
+                            (a, b) -> a));
+            items.forEach(item -> item.setFollowerCount(followerCountMap.getOrDefault(item.getId(), 0L)));
         }
 
         String nextCursor = null;

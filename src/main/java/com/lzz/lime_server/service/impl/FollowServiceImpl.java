@@ -84,6 +84,26 @@ public class FollowServiceImpl implements FollowService {
         return buildPage(rows, size, currentUserId);
     }
 
+    @Override
+    public boolean isMutual(Long userId, Long targetUserId) {
+        return userFollowMapper.existsFollow(userId, targetUserId) > 0
+                && userFollowMapper.existsFollow(targetUserId, userId) > 0;
+    }
+
+    @Override
+    public List<UserInfoResponse> getMutualFriends(Long userId) {
+        return userFollowMapper.selectMutualFriends(userId).stream()
+                .map(this::toBrief)
+                .toList();
+    }
+
+    @Override
+    public void requireMutual(Long userId, Long targetUserId) {
+        if (!isMutual(userId, targetUserId)) {
+            throw new BusinessException(ResultCode.FORBIDDEN);
+        }
+    }
+
     /**
      * 列表行组装分页
      */
