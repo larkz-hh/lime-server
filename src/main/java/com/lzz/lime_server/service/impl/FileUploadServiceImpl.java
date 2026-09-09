@@ -84,6 +84,11 @@ public class FileUploadServiceImpl implements FileUploadService {
         return doUpload(file, "backgrounds", MAX_SIZE_5M, "背景图", ALLOWED_TYPES);
     }
 
+    @Override
+    public String uploadGroupAvatar(MultipartFile file) {
+        return doUpload(file, "groups", MAX_SIZE_5M, "群头像", ALLOWED_TYPES);
+    }
+
     /**
      * 上传笔记图片
      * <p>

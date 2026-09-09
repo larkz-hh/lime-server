@@ -11,6 +11,7 @@ import org.springframework.web.multipart.MultipartFile;
 public interface FileUploadService {
     String uploadAvatar(MultipartFile file);
     String uploadBackground(MultipartFile file);
+    String uploadGroupAvatar(MultipartFile file);
     String uploadNoteImage(MultipartFile file);
     String uploadNoteVideo(MultipartFile file);
     String uploadCommentImage(MultipartFile file);

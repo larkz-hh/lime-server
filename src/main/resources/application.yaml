@@ -88,6 +88,13 @@ jwt:
   expire: 7200          # access token 有效期，单位秒（2小时）
   refresh-expire: 604800 # refresh token 有效期，单位秒（7天）
 
+# 腾讯云即时通信 IM 
+im:
+  sdk-app-id: ${IM_SDK_APP_ID:0}
+  secret-key: ${IM_SECRET_KEY:}
+  user-sig-expire: 604800   # UserSig 有效期（秒），默认 7 天
+  user-id-prefix: "lime_"   # IM UserID 前缀
+
 # ===== AI 大模型（OpenAI 兼容协议，默认 DeepSeek） =====
 ai:
   # 服务地址不带末尾斜杠；换通义/Kimi/Ollama 等改这里即可
