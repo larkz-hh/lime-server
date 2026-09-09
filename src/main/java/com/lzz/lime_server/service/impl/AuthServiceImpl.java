@@ -163,7 +163,7 @@ public class AuthServiceImpl implements AuthService {
                 refreshExpire,
                 TimeUnit.SECONDS);
         // 通过 SSE 通知旧设备下线
-        notificationService.kickUser(user.getId());
+        notificationService.kickUser(user.getId(), NotificationService.REASON_LOGIN_ELSEWHERE);
         return buildLoginResponse(user.getId());
     }
 
@@ -219,6 +219,25 @@ public class AuthServiceImpl implements AuthService {
         }
 
         // 验证通过，重新生成双 Token 并返回
+        return buildLoginResponse(userId);
+    }
+
+    /**
+     * 改密成功后重新签发双 Token，当前会话无缝续用。
+     * 凭证版本 +1 使旧 access token 全部失效，推送 password_changed 的 kick 关闭旧 SSE 连接，
+     * 再签发新双 Token 覆盖 refresh token，旧 refresh token 随之失效。
+     */
+    @Override
+    public LoginResponse reissueTokensAfterPasswordChange(Long userId) {
+        // 凭证版本 +1，旧 token 全部作废
+        redisTemplate.opsForValue().set(
+                AUTH_ISSUE_KEY_PREFIX + userId,
+                String.valueOf(System.currentTimeMillis() / 1000),
+                refreshExpire,
+                TimeUnit.SECONDS);
+        // 通知旧 SSE 连接下线
+        notificationService.kickUser(userId, NotificationService.REASON_PASSWORD_CHANGED);
+        // 重新签发双 Token，覆盖旧 refresh token
         return buildLoginResponse(userId);
     }
 

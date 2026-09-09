@@ -236,13 +236,19 @@ public class NotificationServiceImpl implements NotificationService {
     }
 
     /**
-     * 强制旧设备下线：向该用户所有在线 SSE 连接推送 kick 并关闭。
+     * 向该用户所有在线 SSE 连接推送 kick 并关闭。
+     * data 为 {"reason":"...","message":"..."}，客户端按 reason 区分处理。
      */
     @Override
-    public void kickUser(Long userId) {
+    public void kickUser(Long userId, String reason) {
         List<SseEmitter> list = emitters.remove(userId);
         if (list == null || list.isEmpty()) return;
-        String payload = "{\"message\":\"您的账号已在其他设备登录\"}";
+        String message = switch (reason) {
+            case REASON_LOGIN_ELSEWHERE -> "您的账号已在其他设备登录";
+            case REASON_PASSWORD_CHANGED -> "您的账号密码已修改，请重新登录";
+            default -> "您的登录状态已失效，请重新登录";
+        };
+        String payload = buildKickPayload(reason, message);
         for (SseEmitter e : list) {
             try {
                 e.send(SseEmitter.event().name("kick").data(payload));
@@ -252,6 +258,17 @@ public class NotificationServiceImpl implements NotificationService {
                 e.complete();
             } catch (Exception ignored) {
             }
+        }
+    }
+
+    /**
+     * 序列化 kick 的 data，失败时退回兜底串。
+     */
+    private String buildKickPayload(String reason, String message) {
+        try {
+            return objectMapper.writeValueAsString(Map.of("reason", reason, "message", message));
+        } catch (JsonProcessingException e) {
+            return "{\"reason\":\"" + reason + "\",\"message\":\"" + message + "\"}";
         }
     }
 

@@ -6,6 +6,7 @@ import com.lzz.lime_server.common.exception.BusinessException;
 import com.lzz.lime_server.dto.request.ChangePasswordRequest;
 import com.lzz.lime_server.dto.request.DeleteAccountRequest;
 import com.lzz.lime_server.dto.request.UpdateProfileRequest;
+import com.lzz.lime_server.dto.response.LoginResponse;
 import com.lzz.lime_server.dto.response.UserInfoResponse;
 import com.lzz.lime_server.entity.User;
 import com.lzz.lime_server.mapper.NoteMapper;
@@ -228,21 +229,23 @@ public class UserServiceImpl implements UserService {
 
 
     /**
-     * 修改当前用户密码
+     * 修改当前用户密码。
      * <p>
      * 支持两种身份验证方式：
-     * - 原密码验证：直接比对 BCrypt 哈希
+     * - 原密码验证：比对 BCrypt 哈希
      * - 邮箱验证码验证：校验 Redis 中存储的验证码
-     * 验证通过后将新密码加密存储，并立即使当前 Token 失效，要求用户重新登录。
+     * 验证通过后加密存储新密码，凭证版本 +1 使旧 token 全部失效，
+     * 并向旧 SSE 连接推送 password_changed 的 kick。当前会话不登出，
+     * 返回新双 Token 无缝续用，无需重新登录。
      * </p>
      *
-     * @param userId      用户唯一标识 ID
-     * @param accessToken 当前请求携带的 Access Token，修改成功后加入黑名单
-     * @param request     包含新密码以及原密码或验证码的请求对象
-     * @throws BusinessException 当用户不存在、原密码/验证码错误，或两者均为空时抛出
+     * @param userId  用户 ID
+     * @param request 新密码及原密码或验证码
+     * @return 新双 Token，结构同登录接口
+     * @throws BusinessException 用户不存在、原密码/验证码错误或两者为空
      */
     @Override
-    public void changePassword(Long userId, String accessToken, ChangePasswordRequest request) {
+    public LoginResponse changePassword(Long userId, ChangePasswordRequest request) {
         if (request.getOldPassword() == null && request.getCode() == null) {
             throw new BusinessException("原密码或验证码不能同时为空");
         }
@@ -274,8 +277,8 @@ public class UserServiceImpl implements UserService {
 
         user.setPassword(passwordEncoder.encode(request.getNewPassword()));
         userMapper.updateById(user);
-        // 修改密码后使当前 Token 失效，强制重新登录
-        authService.logout(userId, accessToken);
+        // 旧会话全部失效，当前会话返回新双 Token 无缝续用
+        return authService.reissueTokensAfterPasswordChange(userId);
     }
 
     /**

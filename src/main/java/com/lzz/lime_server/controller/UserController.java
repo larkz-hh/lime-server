@@ -4,6 +4,7 @@ import com.lzz.lime_server.common.Result;
 import com.lzz.lime_server.dto.request.ChangePasswordRequest;
 import com.lzz.lime_server.dto.request.DeleteAccountRequest;
 import com.lzz.lime_server.dto.request.UpdateProfileRequest;
+import com.lzz.lime_server.dto.response.LoginResponse;
 import com.lzz.lime_server.dto.response.UserInfoResponse;
 import com.lzz.lime_server.service.UserService;
 import jakarta.validation.Valid;
@@ -68,13 +69,11 @@ public class UserController {
         return Result.success(userService.updateBackground(currentUserId(), file));
     }
 
-    /// 修改当前登录用户的密码，成功后 Token 立即失效，需重新登录
+    /// 修改当前登录用户的密码。成功后其它会话全部失效并收到 password_changed 的 kick，
+    /// 当前会话不登出，data 返回新签发的双 Token，客户端无缝续用、无需重新登录。
     @PutMapping("/me/password")
-    public Result<Void> changePassword(@Valid @RequestBody ChangePasswordRequest request,
-                                       @RequestHeader("Authorization") String bearerToken) {
-        String token = bearerToken.substring("Bearer ".length());
-        userService.changePassword(currentUserId(), token, request);
-        return Result.success();
+    public Result<LoginResponse> changePassword(@Valid @RequestBody ChangePasswordRequest request) {
+        return Result.success(userService.changePassword(currentUserId(), request));
     }
 
     /// 注销当前登录用户的账号（软删除），需提供密码二次确认
