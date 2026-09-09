@@ -643,7 +643,10 @@ public class NoteServiceImpl implements NoteService {
         // 仅已发布笔记计浏览
         if (note.getStatus() == 1 && !noView) {
             noteMapper.incrementViewCount(noteId);
-            noteViewMapper.upsertView(currentUserId, noteId);
+            // 游客不计入浏览历史
+            if (currentUserId != null) {
+                noteViewMapper.upsertView(currentUserId, noteId);
+            }
         }
 
         // 视频笔记：加载视频元数据与弹幕数（弹幕独立计数，不计入 commentCount）
