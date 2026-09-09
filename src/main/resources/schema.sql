@@ -144,6 +144,7 @@ CREATE TABLE IF NOT EXISTS `note_danmaku` (
 
 CREATE TABLE IF NOT EXISTS `ai_conversation` (
     `id`          BIGINT       AUTO_INCREMENT PRIMARY KEY,
+    `client_id`   VARCHAR(64)  NOT NULL DEFAULT '' COMMENT '客户端生成的会话业务键(幂等)',
     `user_id`     BIGINT       NOT NULL COMMENT '会话所属用户',
     `title`       VARCHAR(100) NOT NULL DEFAULT '' COMMENT '会话标题(首条消息截断)',
     `summary`     TEXT         NULL COMMENT '历史对话摘要(滚动压缩生成)',
@@ -151,19 +152,23 @@ CREATE TABLE IF NOT EXISTS `ai_conversation` (
     `deleted`     TINYINT      NOT NULL DEFAULT 0,
     `create_time` DATETIME     DEFAULT CURRENT_TIMESTAMP,
     `update_time` DATETIME     DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    INDEX `idx_ai_conv_user` (`user_id`, `id`)
+    INDEX `idx_ai_conv_user` (`user_id`, `id`),
+    INDEX `idx_ai_conv_client` (`user_id`, `client_id`)
 );
 
 CREATE TABLE IF NOT EXISTS `ai_message` (
     `id`              BIGINT       AUTO_INCREMENT PRIMARY KEY,
+    `client_id`       VARCHAR(64)  NULL COMMENT '客户端生成的消息幂等键',
     `conversation_id` BIGINT       NOT NULL COMMENT '所属会话 id',
     `role`            VARCHAR(16)  NOT NULL COMMENT 'user / assistant',
+    `status`          VARCHAR(16)  NOT NULL DEFAULT 'done' COMMENT 'streaming / done / failed',
     `content`         TEXT         NOT NULL COMMENT '消息文本',
     `images`          JSON         NULL COMMENT '消息携带的图片 URL 数组',
     `note_id`         BIGINT       NULL COMMENT '用户引用提问的笔记 id',
     `note_snapshot`   TEXT         NULL COMMENT '笔记上下文快照 JSON(发送时检索存入,后续轮次复用)',
     `create_time`     DATETIME     DEFAULT CURRENT_TIMESTAMP,
-    INDEX `idx_ai_msg_conv` (`conversation_id`, `id`)
+    INDEX `idx_ai_msg_conv` (`conversation_id`, `id`),
+    INDEX `idx_ai_msg_client` (`client_id`)
 );
 
 CREATE TABLE IF NOT EXISTS `user_follow` (
