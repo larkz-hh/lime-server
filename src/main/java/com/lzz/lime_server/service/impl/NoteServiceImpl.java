@@ -13,12 +13,16 @@ import com.lzz.lime_server.dto.response.NoteVideoInfo;
 import com.lzz.lime_server.entity.*;
 import com.lzz.lime_server.mapper.*;
 import com.lzz.lime_server.service.NoteService;
+import com.lzz.lime_server.service.NotificationService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
+import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
@@ -41,7 +45,9 @@ public class NoteServiceImpl implements NoteService {
     private final NoteVideoMapper noteVideoMapper;
     private final NoteDanmakuMapper noteDanmakuMapper;
     private final UserMapper userMapper;
+    private final UserFollowMapper userFollowMapper;
     private final StringRedisTemplate redisTemplate;
+    private final NotificationService notificationService;
     private static final String LIKE_COUNT_PREFIX = "note:like:";
     private static final String FAV_COUNT_PREFIX  = "note:fav:";
     private static final long   COUNT_TTL_MINUTES = 10;
@@ -67,6 +73,182 @@ public class NoteServiceImpl implements NoteService {
             return publishVideoNote(userId, request);
         }
         return publishTextNote(userId, request);
+    }
+
+    /** 编辑笔记，已发布存草稿建副本，草稿发布覆盖原笔记或就地发布 */
+    @Override
+    @Transactional
+    public NoteResponse updateNote(Long noteId, Long userId, PublishNoteRequest request) {
+        Note note = noteMapper.selectById(noteId);
+        if (note == null) {
+            throw new BusinessException("笔记不存在");
+        }
+        if (!note.getUserId().equals(userId)) {
+            throw new BusinessException("无权编辑该笔记");
+        }
+
+        boolean isVideo = note.getNoteType() != null && note.getNoteType() == Note.TYPE_VIDEO;
+        int newStatus = request.getStatus() != null ? request.getStatus() : 1;
+        validateContent(request, isVideo);
+
+        if (note.getStatus() == 1) {
+            // 编辑已发布，存草稿新建草稿副本；，接发布就地覆盖
+            if (newStatus == 0) {
+                return saveAsDraft(note, request, isVideo);
+            }
+            return updateInPlace(noteId, request, isVideo, 1);
+        }
+
+        // 编辑草稿
+        if (newStatus == 0) {
+            return updateInPlace(noteId, request, isVideo, 0);
+        }
+        // 发布草稿
+        if (note.getSourceNoteId() != null) {
+            Note original = noteMapper.selectById(note.getSourceNoteId());
+            if (original != null) {
+                // 覆盖原笔记，删草稿
+                updateInPlace(original.getId(), request, isVideo, 1);
+                noteImageMapper.delete(new LambdaQueryWrapper<NoteImage>().eq(NoteImage::getNoteId, noteId));
+                if (isVideo) {
+                    noteVideoMapper.delete(new LambdaQueryWrapper<NoteVideo>().eq(NoteVideo::getNoteId, noteId));
+                }
+                noteMapper.deleteById(noteId);
+                Note fresh = noteMapper.selectById(original.getId());
+                return toResponse(fresh, loadImages(original.getId()), loadVideo(original.getId()));
+            }
+            updateInPlace(noteId, request, isVideo, 1);
+            noteMapper.update(null, new LambdaUpdateWrapper<Note>()
+                    .eq(Note::getId, noteId).set(Note::getSourceNoteId, null));
+            return toResponse(noteMapper.selectById(noteId), loadImages(noteId), loadVideo(noteId));
+        }
+        return updateInPlace(noteId, request, isVideo, 1);
+    }
+
+    /** 编辑已发布笔记存草稿，新建草稿副本，源笔记不动 */
+    private NoteResponse saveAsDraft(Note source, PublishNoteRequest request, boolean isVideo) {
+        Note draft = new Note();
+        draft.setUserId(source.getUserId());
+        draft.setTitle(request.getTitle());
+        draft.setContent(request.getContent());
+        draft.setNoteType(source.getNoteType());
+        draft.setStatus(0);
+        draft.setSourceNoteId(source.getId());
+        draft.setLikeCount(0);
+        draft.setFavCount(0);
+        draft.setViewCount(0);
+        draft.setCommentCount(0);
+        noteMapper.insert(draft);
+
+        if (isVideo) {
+            PublishNoteRequest.VideoItem v = request.getVideo();
+            NoteVideo nv = new NoteVideo();
+            nv.setNoteId(draft.getId());
+            nv.setOriginalUrl(v.getUrl());
+            nv.setCoverUrl(v.getCoverUrl());
+            nv.setCoverWidth(v.getCoverWidth());
+            nv.setCoverHeight(v.getCoverHeight());
+            nv.setVideoWidth(v.getWidth());
+            nv.setVideoHeight(v.getHeight());
+            nv.setDurationMs(v.getDurationMs());
+            nv.setTranscodeStatus(2);
+            noteVideoMapper.insert(nv);
+        } else {
+            Map<String, NoteImage> oldByUrl = loadImagesMap(source.getId());
+            request.getImages().forEach(item -> {
+                NoteImage img = new NoteImage();
+                img.setNoteId(draft.getId());
+                img.setUrl(item.getUrl());
+                NoteImage old = oldByUrl.get(item.getUrl());
+                img.setWidth(item.getWidth() != null ? item.getWidth() : (old != null ? old.getWidth() : null));
+                img.setHeight(item.getHeight() != null ? item.getHeight() : (old != null ? old.getHeight() : null));
+                img.setSortOrder(item.getSortOrder());
+                noteImageMapper.insert(img);
+            });
+        }
+        return toResponse(draft, loadImages(draft.getId()), loadVideo(draft.getId()));
+    }
+
+    /** 就地更新主表与图片/视频，计数不变 */
+    private NoteResponse updateInPlace(Long noteId, PublishNoteRequest request, boolean isVideo, int status) {
+        noteMapper.update(null, new LambdaUpdateWrapper<Note>()
+                .eq(Note::getId, noteId)
+                .set(Note::getTitle, request.getTitle())
+                .set(Note::getContent, request.getContent())
+                .set(Note::getStatus, status)
+                .set(Note::getUpdateTime, LocalDateTime.now()));
+
+        if (isVideo) {
+            PublishNoteRequest.VideoItem v = request.getVideo();
+            NoteVideo nv = new NoteVideo();
+            nv.setOriginalUrl(v.getUrl());
+            nv.setCoverUrl(v.getCoverUrl());
+            nv.setCoverWidth(v.getCoverWidth());
+            nv.setCoverHeight(v.getCoverHeight());
+            nv.setVideoWidth(v.getWidth());
+            nv.setVideoHeight(v.getHeight());
+            nv.setDurationMs(v.getDurationMs());
+            noteVideoMapper.update(nv, new LambdaQueryWrapper<NoteVideo>().eq(NoteVideo::getNoteId, noteId));
+        } else {
+            Map<String, NoteImage> oldByUrl = loadImagesMap(noteId);
+            noteImageMapper.delete(new LambdaQueryWrapper<NoteImage>().eq(NoteImage::getNoteId, noteId));
+            request.getImages().forEach(item -> {
+                NoteImage img = new NoteImage();
+                img.setNoteId(noteId);
+                img.setUrl(item.getUrl());
+                NoteImage old = oldByUrl.get(item.getUrl());
+                img.setWidth(item.getWidth() != null ? item.getWidth() : (old != null ? old.getWidth() : null));
+                img.setHeight(item.getHeight() != null ? item.getHeight() : (old != null ? old.getHeight() : null));
+                img.setSortOrder(item.getSortOrder());
+                noteImageMapper.insert(img);
+            });
+        }
+        Note fresh = noteMapper.selectById(noteId);
+        return toResponse(fresh, loadImages(noteId), loadVideo(noteId));
+    }
+
+    /** 校验编辑内容*/
+    private void validateContent(PublishNoteRequest request, boolean isVideo) {
+        if (isVideo) {
+            if (request.getVideo() == null || !StringUtils.hasText(request.getVideo().getUrl())) {
+                throw new BusinessException("视频 URL 不能为空");
+            }
+        } else {
+            if (!StringUtils.hasText(request.getTitle()) && !StringUtils.hasText(request.getContent())) {
+                throw new BusinessException("标题和正文不能同时为空");
+            }
+            if (request.getImages() == null || request.getImages().isEmpty()) {
+                throw new BusinessException("至少上传一张图片");
+            }
+        }
+    }
+
+    private Map<String, NoteImage> loadImagesMap(Long noteId) {
+        return noteImageMapper.selectList(new LambdaQueryWrapper<NoteImage>().eq(NoteImage::getNoteId, noteId))
+                .stream().collect(Collectors.toMap(NoteImage::getUrl, img -> img, (a, b) -> a));
+    }
+
+    private List<NoteImage> loadImages(Long noteId) {
+        return noteImageMapper.selectList(new LambdaQueryWrapper<NoteImage>()
+                .eq(NoteImage::getNoteId, noteId).orderByAsc(NoteImage::getSortOrder));
+    }
+
+    private NoteVideo loadVideo(Long noteId) {
+        return noteVideoMapper.selectOne(new LambdaQueryWrapper<NoteVideo>().eq(NoteVideo::getNoteId, noteId));
+    }
+
+    /** 删除笔记（逻辑删除） */
+    @Override
+    @Transactional
+    public void deleteNote(Long noteId, Long userId) {
+        Note note = noteMapper.selectById(noteId);
+        if (note == null) {
+            throw new BusinessException("笔记不存在");
+        }
+        if (!note.getUserId().equals(userId)) {
+            throw new BusinessException("无权删除该笔记");
+        }
+        noteMapper.deleteById(noteId);
     }
 
     /**
@@ -209,6 +391,8 @@ public class NoteServiceImpl implements NoteService {
             items.forEach(item -> item.setLiked(likedNoteIds.contains(item.getId())));
         }
 
+        fillAuthorFollow(items, currentUserId);
+
         Long nextCursor = hasMore ? items.getLast().getId() : null;
         return CursorPage.of(items, nextCursor, hasMore);
     }
@@ -235,6 +419,7 @@ public class NoteServiceImpl implements NoteService {
         // 将数据库返回的扁平化投影对象转换为面向前端的结构化响应对象
         List<NoteFeedResponse> items = rows.stream().map(this::toFeedItem).toList();
         fillLiked(items, userId);
+        fillAuthorFollow(items, userId);
 
         // 还有下一页，将当前页最后一条笔记的 ID 作为下一次请求的游标
         Long nextCursor = hasMore ? items.getLast().getId() : null;
@@ -266,6 +451,31 @@ public class NoteServiceImpl implements NoteService {
 
         List<NoteFeedResponse> items = rows.stream().map(this::toFeedItem).toList();
         fillLiked(items, userId);
+        fillAuthorFollow(items, userId);
+
+        Long nextCursor = hasMore ? items.getLast().getId() : null;
+        return CursorPage.of(items, nextCursor, hasMore);
+    }
+
+    /**
+     * 关注动态,关注的人发布的笔记，游标分页。
+     * <p>作者均为已关注的人，isFollowing 恒为 true，isFollowedBack 标记是否互关。</p>
+     *
+     * @param userId 当前登录用户 ID
+     * @param cursor 上一页最后一条笔记 ID，首次传 null
+     * @param size   每页条数
+     * @return 笔记卡片分页结果
+     */
+    @Override
+    public CursorPage<NoteFeedResponse> getFollowingFeed(Long userId, Long cursor, int size) {
+        List<NoteMapper.NoteFeedRow> rows = noteMapper.selectFollowingFeed(userId, cursor, size + 1);
+
+        boolean hasMore = rows.size() > size;
+        if (hasMore) rows = rows.subList(0, size);
+
+        List<NoteFeedResponse> items = rows.stream().map(this::toFeedItem).toList();
+        fillLiked(items, userId);
+        fillAuthorFollow(items, userId);
 
         Long nextCursor = hasMore ? items.getLast().getId() : null;
         return CursorPage.of(items, nextCursor, hasMore);
@@ -403,7 +613,7 @@ public class NoteServiceImpl implements NoteService {
     @Override
     public NoteDetailResponse getNoteDetail(Long noteId, Long currentUserId, boolean noView) {
         Note note = noteMapper.selectById(noteId);
-        if (note == null || note.getStatus() != 1) {
+        if (note == null || (note.getStatus() != 1 && !note.getUserId().equals(currentUserId))) {
             throw new BusinessException("笔记不存在");
         }
 
@@ -430,12 +640,13 @@ public class NoteServiceImpl implements NoteService {
                         .eq(NoteFav::getNoteId, noteId)
                         .eq(NoteFav::getUserId, currentUserId)) > 0;
 
-        if (!noView) {
-            // 每次详情访问累计浏览量
+        // 仅已发布笔记计浏览
+        if (note.getStatus() == 1 && !noView) {
             noteMapper.incrementViewCount(noteId);
-
-            // 记录浏览历史,重复浏览同一笔记则更新时间，使其重新出现在历史顶部
-            noteViewMapper.upsertView(currentUserId, noteId);
+            // 游客不计入浏览历史
+            if (currentUserId != null) {
+                noteViewMapper.upsertView(currentUserId, noteId);
+            }
         }
 
         // 视频笔记：加载视频元数据与弹幕数（弹幕独立计数，不计入 commentCount）
@@ -448,7 +659,10 @@ public class NoteServiceImpl implements NoteService {
                     new LambdaQueryWrapper<NoteDanmaku>().eq(NoteDanmaku::getNoteId, noteId)));
         }
 
-        return buildDetailResponse(note, images, author, likeCount, favCount, liked, favorited, noteVideo, danmakuCount);
+        NoteDetailResponse resp = buildDetailResponse(note, images, author, likeCount, favCount,
+                liked, favorited, noteVideo, danmakuCount);
+        fillDetailAuthorFollow(resp, currentUserId);
+        return resp;
     }
 
 
@@ -480,7 +694,7 @@ public class NoteServiceImpl implements NoteService {
     @Override
     @Transactional
     public void likeNote(Long noteId, Long userId) {
-        ensureNoteExists(noteId);
+        Note note = ensureNoteExists(noteId);
 
         boolean alreadyLiked = noteLikeMapper.selectCount(
                 new LambdaQueryWrapper<NoteLike>()
@@ -500,6 +714,9 @@ public class NoteServiceImpl implements NoteService {
 
         // 写后删除缓存，下次读取时再重新加载
         redisTemplate.delete(LIKE_COUNT_PREFIX + noteId);
+
+        // 点赞后通知笔记作者
+        notificationService.notifyUser(userId, note.getUserId(), Notification.TYPE_LIKE, noteId, null, null);
     }
 
     /**
@@ -533,7 +750,7 @@ public class NoteServiceImpl implements NoteService {
     @Override
     @Transactional
     public void favoriteNote(Long noteId, Long userId) {
-        ensureNoteExists(noteId);
+        Note note = ensureNoteExists(noteId);
 
         boolean alreadyFav = noteFavMapper.selectCount(
                 new LambdaQueryWrapper<NoteFav>()
@@ -551,6 +768,9 @@ public class NoteServiceImpl implements NoteService {
                 .setSql("fav_count = fav_count + 1"));
 
         redisTemplate.delete(FAV_COUNT_PREFIX + noteId);
+
+        // 收藏后通知笔记作者
+        notificationService.notifyUser(userId, note.getUserId(), Notification.TYPE_FAVORITE, noteId, null, null);
     }
 
     /**
@@ -654,6 +874,8 @@ public class NoteServiceImpl implements NoteService {
             items.forEach(item -> item.setLiked(likedNoteIds.contains(item.getId())));
         }
 
+        fillAuthorFollow(items, userId);
+
         Long nextCursor = hasMore ? rows.getLast().getCursorId() : null;
         return CursorPage.of(items, nextCursor, hasMore);
     }
@@ -711,16 +933,60 @@ public class NoteServiceImpl implements NoteService {
             items.forEach(item -> item.setLiked(likedNoteIds.contains(item.getId())));
         }
 
+        fillAuthorFollow(items, currentUserId);
+
         Long nextCursor = hasMore ? rows.getLast().getCursorId() : null;
         return CursorPage.of(items, nextCursor, hasMore);
     }
 
-    /** 校验笔记是否存在且已发布。*/
-    private void ensureNoteExists(Long noteId) {
+    /** 校验笔记是否存在且已发布，返回笔记实体。*/
+    private Note ensureNoteExists(Long noteId) {
         Note note = noteMapper.selectById(noteId);
         if (note == null || note.getStatus() != 1) {
             throw new BusinessException("笔记不存在");
         }
+        return note;
+    }
+
+    /**
+     * 批量填充卡片作者的关注状态
+     */
+    private void fillAuthorFollow(List<NoteFeedResponse> items, Long currentUserId) {
+        if (items.isEmpty() || currentUserId == null) return;
+        List<Long> authorIds = items.stream()
+                .map(NoteFeedResponse::getAuthor)
+                .filter(Objects::nonNull)
+                .map(NoteFeedResponse.AuthorBrief::getId)
+                .distinct().toList();
+        if (authorIds.isEmpty()) return;
+
+        // 当前用户关注的作者集合
+        Set<Long> followedIds = userFollowMapper.selectList(
+                        new LambdaQueryWrapper<UserFollow>()
+                                .eq(UserFollow::getFollowerId, currentUserId)
+                                .in(UserFollow::getFolloweeId, authorIds))
+                .stream().map(UserFollow::getFolloweeId).collect(Collectors.toSet());
+        // 关注了当前用户的作者集合
+        Set<Long> followedBackIds = userFollowMapper.selectList(
+                        new LambdaQueryWrapper<UserFollow>()
+                                .eq(UserFollow::getFolloweeId, currentUserId)
+                                .in(UserFollow::getFollowerId, authorIds))
+                .stream().map(UserFollow::getFollowerId).collect(Collectors.toSet());
+
+        items.forEach(item -> {
+            if (item.getAuthor() != null) {
+                item.getAuthor().setIsFollowing(followedIds.contains(item.getAuthor().getId()));
+                item.getAuthor().setIsFollowedBack(followedBackIds.contains(item.getAuthor().getId()));
+            }
+        });
+    }
+
+    /** 填充笔记详情作者的关注状态（*/
+    private void fillDetailAuthorFollow(NoteDetailResponse resp, Long currentUserId) {
+        NoteDetailResponse.AuthorInfo author = resp.getAuthor();
+        if (author == null || currentUserId == null || currentUserId.equals(author.getId())) return;
+        author.setIsFollowing(userFollowMapper.existsFollow(currentUserId, author.getId()) > 0);
+        author.setIsFollowedBack(userFollowMapper.existsFollow(author.getId(), currentUserId) > 0);
     }
 
     /**

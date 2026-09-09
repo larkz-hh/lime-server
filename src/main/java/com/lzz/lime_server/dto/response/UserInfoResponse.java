@@ -11,6 +11,8 @@ public class UserInfoResponse {
     private String email;
     private String nickname;
     private String handle;
+    /** 对外公开标识：二维码/外链使用 */
+    private String uid;
     private String bio;
     private String avatar;
     private String backgroundImage;
@@ -23,4 +25,11 @@ public class UserInfoResponse {
     private Boolean likePrivate;
     /** 收藏列表是否对外公开：false=公开，true=私密 */
     private Boolean favPrivate;
+    private Long followingCount;
+    private Long followerCount;
+    private Long noteCount;
+    private Long totalLikeCount;
+    private Long totalFavCount;
+    private Boolean isFollowing;
+    private Boolean isFollowedBack;
 }

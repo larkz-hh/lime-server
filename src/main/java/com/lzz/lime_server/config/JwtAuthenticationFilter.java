@@ -30,6 +30,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
     private static final String BEARER_PREFIX = "Bearer ";
     private static final String BLACKLIST_KEY_PREFIX = "blacklist:token:";
+    private static final String AUTH_ISSUE_KEY_PREFIX = "auth:issue:";
 
     @Override
     protected void doFilterInternal(HttpServletRequest request,
@@ -47,6 +48,12 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             }
             // 从 Token 中解析出用户 ID
             Long userId = jwtUtil.getUserIdFromToken(token);
+            // 强制下线：账号在其他设备登录后，旧 token 立即失效
+            String issueAt = redisTemplate.opsForValue().get(AUTH_ISSUE_KEY_PREFIX + userId);
+            if (issueAt != null && jwtUtil.getIssuedAtMillis(token) / 1000 < Long.parseLong(issueAt)) {
+                filterChain.doFilter(request, response);
+                return;
+            }
             // 构建 Spring Security 的认证对象
             UsernamePasswordAuthenticationToken authentication =
                     new UsernamePasswordAuthenticationToken(userId, null, Collections.emptyList());
@@ -68,6 +75,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             // 截取掉 "Bearer " 前缀，返回真正的 Token 字符串
             return bearerToken.substring(BEARER_PREFIX.length());
         }
-        return null;
+        // EventSource 无法自定义请求头，token 通过 access_token 查询参数传入
+        return request.getParameter("access_token");
     }
 }

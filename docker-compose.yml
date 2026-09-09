@@ -85,6 +85,8 @@ services:
     environment:
       NAMESRV_ADDR: lime-namesrv:9876
       #JAVA_OPT_EXT: "-Dbroker.brokerIP1=127.0.0.1"
+      # 限制 Broker 堆内存
+      JAVA_OPT_EXT: "-Xms512m -Xmx1g -Xmn256m -XX:MaxDirectMemorySize=512m"
     command: sh mqbroker -n lime-namesrv:9876 autoCreateTopicEnable=true
     depends_on:
       - rocketmq-namesrv

@@ -50,6 +50,33 @@ public interface NoteMapper extends BaseMapper<Note> {
     })
     List<NoteFeedRow> selectFeed(@Param("cursor") Long cursor, @Param("size") int size);
 
+    // 我关注的人发布的笔记，按 id 倒序，游标分页
+    @Select("""
+            <script>
+            SELECT n.id, n.title, n.like_count, n.note_type,
+                   COALESCE(nv.cover_url, ni.url) AS cover_image,
+                   COALESCE(nv.cover_width, ni.width) AS cover_width,
+                   COALESCE(nv.cover_height, ni.height) AS cover_height,
+                   nv.duration_ms AS video_duration_ms, nv.video_width, nv.video_height,
+                   nv.original_url AS video_play_url,
+                   u.id AS author_id, u.nickname AS author_nickname, u.avatar AS author_avatar
+            FROM note n
+            JOIN user_follow uf ON uf.followee_id = n.user_id AND uf.follower_id = #{userId}
+            LEFT JOIN note_image ni ON ni.note_id = n.id
+                AND ni.sort_order = (SELECT MIN(sort_order) FROM note_image WHERE note_id = n.id)
+            LEFT JOIN note_video nv ON nv.note_id = n.id
+            LEFT JOIN `user` u ON u.id = n.user_id
+            WHERE n.status = 1 AND n.deleted = 0
+            <if test="cursor != null">AND n.id &lt; #{cursor}</if>
+            ORDER BY n.id DESC
+            LIMIT #{size}
+            </script>
+            """)
+    @ResultMap("feedResultMap")
+    List<NoteFeedRow> selectFollowingFeed(@Param("userId") Long userId,
+                                          @Param("cursor") Long cursor,
+                                          @Param("size") int size);
+
     /// 视频流查询：仅视频笔记，id 倒序；seedNoteId 用于从指定笔记开始取（含自身，进视频页首屏定位）
     /// orientation 可选过滤横竖屏：LANDSCAPE=宽>高（全屏横屏会话用），PORTRAIT=宽<=高
     @Select("""
@@ -442,4 +469,21 @@ public interface NoteMapper extends BaseMapper<Note> {
             LIMIT #{size}
             """)
     List<String> selectSuggestTitles(@Param("prefix") String prefix, @Param("size") int size);
+
+    /**
+     * 用户主页统计，已发布笔记数 + 笔记收到的总点赞/收藏。
+     */
+    @Select("SELECT COUNT(*) AS note_count, " +
+            "COALESCE(SUM(like_count), 0) AS like_total, " +
+            "COALESCE(SUM(fav_count), 0) AS fav_total " +
+            "FROM note WHERE user_id = #{userId} AND status = 1 AND deleted = 0")
+    UserNoteStats selectUserNoteStats(@Param("userId") Long userId);
+
+    // 用户主页统计投影
+    @Data
+    class UserNoteStats {
+        private Long noteCount;
+        private Long likeTotal;
+        private Long favTotal;
+    }
 }

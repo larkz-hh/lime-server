@@ -9,8 +9,10 @@ import com.lzz.lime_server.dto.response.NoteVideoInfo;
 import com.lzz.lime_server.dto.response.UserSearchResult;
 import com.lzz.lime_server.entity.Note;
 import com.lzz.lime_server.entity.NoteLike;
+import com.lzz.lime_server.entity.UserFollow;
 import com.lzz.lime_server.mapper.NoteLikeMapper;
 import com.lzz.lime_server.mapper.NoteMapper;
+import com.lzz.lime_server.mapper.UserFollowMapper;
 import com.lzz.lime_server.mapper.UserMapper;
 import com.lzz.lime_server.service.SearchService;
 import lombok.RequiredArgsConstructor;
@@ -22,6 +24,7 @@ import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
@@ -38,6 +41,7 @@ public class SearchServiceImpl implements SearchService {
     private final NoteMapper noteMapper;
     private final NoteLikeMapper noteLikeMapper;
     private final UserMapper userMapper;
+    private final UserFollowMapper userFollowMapper;
     private final StringRedisTemplate redisTemplate;
 
     // 热搜 ZSET 的 key 前缀，完整 key 为 hot:search:yyyyMMdd
@@ -134,6 +138,32 @@ public class SearchServiceImpl implements SearchService {
             items.forEach(item -> item.setLiked(likedNoteIds.contains(item.getId())));
         }
 
+        // 批量填充卡片作者的关注状态
+        List<Long> authorIds = items.stream()
+                .map(NoteFeedResponse::getAuthor)
+                .filter(author -> author != null)
+                .map(NoteFeedResponse.AuthorBrief::getId)
+                .distinct().toList();
+        if (!authorIds.isEmpty()) {
+            Set<Long> followedIds = userFollowMapper.selectList(
+                            new LambdaQueryWrapper<UserFollow>()
+                                    .eq(UserFollow::getFollowerId, currentUserId)
+                                    .in(UserFollow::getFolloweeId, authorIds))
+                    .stream().map(UserFollow::getFolloweeId).collect(Collectors.toSet());
+            Set<Long> followedBackIds = userFollowMapper.selectList(
+                            new LambdaQueryWrapper<UserFollow>()
+                                    .eq(UserFollow::getFolloweeId, currentUserId)
+                                    .in(UserFollow::getFollowerId, authorIds))
+                    .stream().map(UserFollow::getFollowerId).collect(Collectors.toSet());
+            items.forEach(item -> {
+                NoteFeedResponse.AuthorBrief author = item.getAuthor();
+                if (author != null) {
+                    author.setIsFollowing(followedIds.contains(author.getId()));
+                    author.setIsFollowedBack(followedBackIds.contains(author.getId()));
+                }
+            });
+        }
+
         String nextCursor = null;
         if (hasMore) {
             NoteMapper.NoteFeedRow last = rows.getLast();
@@ -190,6 +220,39 @@ public class SearchServiceImpl implements SearchService {
             item.setIsMe(row.getId().equals(currentUserId));
             return item;
         }).toList();
+
+        // 批量填充关注状态
+        List<Long> userIds = items.stream()
+                .filter(r -> !Boolean.TRUE.equals(r.getIsMe()))
+                .map(UserSearchResult::getId).toList();
+        if (!userIds.isEmpty()) {
+            Set<Long> followedIds = userFollowMapper.selectList(
+                            new LambdaQueryWrapper<UserFollow>()
+                                    .eq(UserFollow::getFollowerId, currentUserId)
+                                    .in(UserFollow::getFolloweeId, userIds))
+                    .stream().map(UserFollow::getFolloweeId).collect(Collectors.toSet());
+            Set<Long> followedBackIds = userFollowMapper.selectList(
+                            new LambdaQueryWrapper<UserFollow>()
+                                    .eq(UserFollow::getFolloweeId, currentUserId)
+                                    .in(UserFollow::getFollowerId, userIds))
+                    .stream().map(UserFollow::getFollowerId).collect(Collectors.toSet());
+            items.forEach(item -> {
+                if (!Boolean.TRUE.equals(item.getIsMe())) {
+                    item.setIsFollowing(followedIds.contains(item.getId()));
+                    item.setIsFollowedBack(followedBackIds.contains(item.getId()));
+                }
+            });
+        }
+
+        List<Long> pageIds = items.stream().map(UserSearchResult::getId).toList();
+        if (!pageIds.isEmpty()) {
+            Map<Long, Long> followerCountMap = userFollowMapper.countFollowersBatch(pageIds).stream()
+                    .collect(Collectors.toMap(
+                            UserFollowMapper.FollowerCountRow::getUserId,
+                            UserFollowMapper.FollowerCountRow::getCnt,
+                            (a, b) -> a));
+            items.forEach(item -> item.setFollowerCount(followerCountMap.getOrDefault(item.getId(), 0L)));
+        }
 
         String nextCursor = null;
         if (hasMore) {

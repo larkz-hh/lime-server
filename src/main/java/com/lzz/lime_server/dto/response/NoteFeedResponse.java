@@ -39,5 +39,7 @@ public class NoteFeedResponse {
         private Long id;
         private String nickname;
         private String avatar;
+        private Boolean isFollowing;
+        private Boolean isFollowedBack;
     }
 }

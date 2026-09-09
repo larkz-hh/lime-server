@@ -33,7 +33,7 @@ public class GlobalExceptionHandler {
     // 业务异常
     @ExceptionHandler(BusinessException.class)
     public Result<?> handleBusiness(BusinessException e) {
-        return Result.fail(e.getMessage());
+        return Result.fail(e.getCode(), e.getMessage());
     }
 
     // 未预期的系统异常

@@ -12,6 +12,7 @@ import com.lzz.lime_server.service.EmailService;
 import com.lzz.lime_server.entity.User;
 import com.lzz.lime_server.mapper.UserMapper;
 import com.lzz.lime_server.service.AuthService;
+import com.lzz.lime_server.service.NotificationService;
 import com.lzz.lime_server.util.JwtUtil;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
@@ -35,6 +36,7 @@ public class AuthServiceImpl implements AuthService {
     private final JwtUtil jwtUtil;
     private final StringRedisTemplate redisTemplate;
     private final EmailService emailService;
+    private final NotificationService notificationService;
 
     @Value("${jwt.expire}")
     private long expire;
@@ -46,6 +48,8 @@ public class AuthServiceImpl implements AuthService {
     private static final String REFRESH_TOKEN_KEY_PREFIX = "refresh:token:";
     // Redis 中存储 Access Token 黑名单的键前缀
     private static final String BLACKLIST_KEY_PREFIX = "blacklist:token:";
+    // Redis 中记录最近登录时刻（秒）的键，更早签发的 token 据此失效
+    private static final String AUTH_ISSUE_KEY_PREFIX = "auth:issue:";
     private static final String EMAIL_CODE_KEY_PREFIX = "email:code:";
     // 同一邮箱发码冷却时间（秒）
     private static final long CODE_COOLDOWN_SECONDS = 60;
@@ -102,6 +106,8 @@ public class AuthServiceImpl implements AuthService {
         user.setNickname("用户" + UUID.randomUUID().toString().replace("-", "").substring(0, 6));
         // 自动生成唯一 handle，用户可在个人设置中修改
         user.setHandle("user_" + UUID.randomUUID().toString().replace("-", "").substring(0, 8));
+        // uid：注册时生成且永不修改，作对外公开标识
+        user.setUid("u_" + UUID.randomUUID().toString().replace("-", ""));
         user.setPhone(request.getPhone());
         user.setRole("USER");
         user.setStatus(0);
@@ -150,6 +156,14 @@ public class AuthServiceImpl implements AuthService {
         if (user.getStatus() == 1) {
             throw new BusinessException(ResultCode.FORBIDDEN);
         }
+        // 记录登录时刻（秒，与 JWT iat 对齐），过滤器据此使更早签发的 token 失效
+        redisTemplate.opsForValue().set(
+                AUTH_ISSUE_KEY_PREFIX + user.getId(),
+                String.valueOf(System.currentTimeMillis() / 1000),
+                refreshExpire,
+                TimeUnit.SECONDS);
+        // 通过 SSE 通知旧设备下线
+        notificationService.kickUser(user.getId());
         return buildLoginResponse(user.getId());
     }
 

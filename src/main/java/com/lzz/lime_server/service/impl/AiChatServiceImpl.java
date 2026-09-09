@@ -206,26 +206,48 @@ public class AiChatServiceImpl implements AiChatService {
     }
 
     /**
-     * 聊天流式入口：先让模型判断是否需要工具（非流式快速判断），
-     * 需要则执行工具后继续流式输出最终回答；不需要则直接用第一轮结果。
+     * 单次流式聊天：正文边收边转发；若流中出现工具调用，执行后再继续流式输出最终回答。
      */
     private SseEmitter startChatStream(AiModelSpec spec, List<ChatMessage> context, boolean enableSearch,
                                        Function<String, String> doneEventBuilder,
                                        Consumer<String> onDelta, Consumer<String> onError) {
         SseEmitter emitter = new SseEmitter((properties.getReadTimeoutSeconds() + 15) * 1000L);
         Thread.ofVirtual().name("ai-chat").start(() -> {
-            try {
-                AiResponse first = aiProvider.chat(withTools(spec, enableSearch), context);
-                List<AiToolCall> calls = first.getToolCalls();
-                if (calls != null && !calls.isEmpty()) {
-                    // 模型要调工具：先通知 App，再执行工具，之后继续流式
+            List<AiToolCall> calls = new ArrayList<>();
+            StringBuilder firstPass = new StringBuilder();
+            Runnable fail = () -> {
+                try {
+                    if (onError != null) {
+                        onError.accept("AI 服务暂时不可用，请稍后重试");
+                    }
+                    emitter.send(SseEmitter.event().data(errorEvent("AI 服务暂时不可用，请稍后重试")));
+                } catch (Exception ignored) {
+                }
+                emitter.complete();
+            };
+            Runnable finishNoTool = () -> {
+                try {
+                    // 无工具：正文已实时转发，这里补发 done 结束
+                    String data = doneEventBuilder.apply(firstPass.toString());
+                    if (data != null) {
+                        emitter.send(SseEmitter.event().data(data));
+                    }
+                    emitter.complete();
+                } catch (Exception e) {
+                    log.error("AI 流式收尾失败", e);
+                    fail.run();
+                }
+            };
+            Runnable toolRound = () -> {
+                try {
+                    // 有工具：先广播工具名，再带执行结果继续请求模型
                     for (AiToolCall tc : calls) {
                         emitter.send(SseEmitter.event().data(toolEvent(tc.getName())));
                     }
                     List<ChatMessage> toolMessages = new ArrayList<>(context);
                     toolMessages.add(ChatMessage.builder()
                             .role("assistant")
-                            .content(first.getContent() == null ? "" : first.getContent())
+                            .content(firstPass.toString())
                             .toolCalls(calls)
                             .build());
                     for (AiToolCall tc : calls) {
@@ -236,29 +258,50 @@ public class AiChatServiceImpl implements AiChatService {
                                 .build());
                     }
                     streamToEmitter(emitter, spec, toolMessages, doneEventBuilder, onDelta, onError);
-                } else {
-                    // 无需工具：第一轮结果即为最终回答
-                    String answer = first.getContent() == null ? "" : first.getContent();
-                    String doneData = doneEventBuilder.apply(answer);
-                    if (!answer.isEmpty()) {
-                        emitter.send(SseEmitter.event().data(deltaEvent(answer)));
-                    }
-                    if (doneData != null) {
-                        emitter.send(SseEmitter.event().data(doneData));
-                    }
-                    emitter.complete();
+                } catch (Exception e) {
+                    log.error("AI 聊天工具轮次失败", e);
+                    fail.run();
                 }
+            };
+            try {
+                aiProvider.streamChat(withTools(spec, enableSearch), context, new AiStreamCallback() {
+                    @Override
+                    public void onDelta(String text) {
+                        firstPass.append(text);
+                        try {
+                            emitter.send(SseEmitter.event().data(deltaEvent(text)));
+                            if (onDelta != null) {
+                                onDelta.accept(text);
+                            }
+                        } catch (Exception e) {
+                            log.debug("SSE 发送失败（客户端可能已断开）：{}", e.getMessage());
+                        }
+                    }
+
+                    @Override
+                    public void onToolCalls(List<AiToolCall> toolCalls) {
+                        if (toolCalls != null) {
+                            calls.addAll(toolCalls);
+                        }
+                    }
+
+                    @Override
+                    public void onComplete() {
+                        if (calls.isEmpty()) {
+                            finishNoTool.run();
+                        } else {
+                            toolRound.run();
+                        }
+                    }
+
+                    @Override
+                    public void onError(String message) {
+                        fail.run();
+                    }
+                });
             } catch (Exception e) {
-                log.error("AI 聊天工具轮次失败", e);
-                try {
-                    onError.accept("AI 服务暂时不可用，请稍后重试");
-                } catch (Exception ignored) {
-                }
-                try {
-                    emitter.send(SseEmitter.event().data(errorEvent("AI 服务暂时不可用，请稍后重试")));
-                } catch (Exception ignored) {
-                }
-                emitter.complete();
+                log.error("AI 聊天流式失败", e);
+                fail.run();
             }
         });
         return emitter;

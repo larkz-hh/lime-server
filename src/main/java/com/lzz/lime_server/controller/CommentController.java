@@ -103,6 +103,8 @@ public class CommentController {
     }
 
     private Long currentUserId() {
-        return (Long) SecurityContextHolder.getContext().getAuthentication().getPrincipal();
+        var authentication = SecurityContextHolder.getContext().getAuthentication();
+        Object principal = authentication == null ? null : authentication.getPrincipal();
+        return principal instanceof Long ? (Long) principal : null;
     }
 }

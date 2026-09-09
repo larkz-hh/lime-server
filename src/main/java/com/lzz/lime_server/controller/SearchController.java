@@ -8,6 +8,7 @@ import com.lzz.lime_server.dto.response.HotSearchWord;
 import com.lzz.lime_server.dto.response.NoteFeedResponse;
 import com.lzz.lime_server.dto.response.UserSearchResult;
 import com.lzz.lime_server.service.SearchService;
+import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -67,10 +68,12 @@ public class SearchController {
         return Result.success(searchService.suggest(q, size));
     }
 
-    /// 当日热搜榜，按点击次数降序
+    /// 当日热搜榜，按点击次数降序，客户端用本地缓存，不发请求
     @GetMapping("/hot")
-    public Result<List<HotSearchWord>> hot(@RequestParam(defaultValue = "10") int size) {
+    public Result<List<HotSearchWord>> hot(@RequestParam(defaultValue = "10") int size,
+                                           HttpServletResponse response) {
         size = Math.min(size, 50);
+        response.setHeader("Cache-Control", "public, max-age=300");
         return Result.success(searchService.hotSearchWords(size));
     }
 
@@ -82,6 +85,8 @@ public class SearchController {
     }
 
     private Long currentUserId() {
-        return (Long) SecurityContextHolder.getContext().getAuthentication().getPrincipal();
+        var authentication = SecurityContextHolder.getContext().getAuthentication();
+        Object principal = authentication == null ? null : authentication.getPrincipal();
+        return principal instanceof Long ? (Long) principal : null;
     }
 }

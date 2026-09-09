@@ -17,6 +17,7 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Stream;
@@ -24,7 +25,7 @@ import java.util.stream.Stream;
 /**
  * OpenAI 兼容协议的模型调用实现。
  * 请求体按 {@code POST {baseUrl}/chat/completions} 组装，支持文本与 image_url 图片消息、
- * 非流式与 SSE 流式（data: 行）两种返回。
+ * 非流式与 SSE 流式（data: 行）两种返回；流式响应同样识别增量 tool_calls。
  */
 @Slf4j
 @Component
@@ -71,8 +72,13 @@ public class OpenAiCompatibleProvider implements AiProvider {
                 callback.onError(extractErrorMessage(body));
                 return;
             }
+            StreamToolState state = new StreamToolState();
             try (Stream<String> lines = response.body()) {
-                lines.forEach(line -> handleStreamLine(line, callback));
+                lines.forEach(line -> handleStreamLine(line, callback, state));
+            }
+            List<AiToolCall> toolCalls = state.finish();
+            if (toolCalls != null && !toolCalls.isEmpty()) {
+                callback.onToolCalls(toolCalls);
             }
             callback.onComplete();
         } catch (InterruptedException e) {
@@ -200,7 +206,7 @@ public class OpenAiCompatibleProvider implements AiProvider {
                 .build();
     }
 
-    private void handleStreamLine(String line, AiStreamCallback callback) {
+    private void handleStreamLine(String line, AiStreamCallback callback, StreamToolState state) {
         if (line == null || line.isBlank()) {
             return;
         }
@@ -219,6 +225,27 @@ public class OpenAiCompatibleProvider implements AiProvider {
                 JsonNode content = delta.path("content");
                 if (content.isTextual() && !content.asText().isEmpty()) {
                     callback.onDelta(content.asText());
+                }
+                // 流式 tool_calls 按 index 累积：id/name/arguments 可能分多次到达
+                JsonNode toolCalls = delta.path("tool_calls");
+                if (toolCalls.isArray() && !toolCalls.isEmpty()) {
+                    for (JsonNode tc : toolCalls) {
+                        int index = tc.path("index").asInt(0);
+                        StreamToolState.Partial partial = state.partial(index);
+                        JsonNode id = tc.path("id");
+                        if (id.isTextual() && !id.asText().isEmpty()) {
+                            partial.id = id.asText();
+                        }
+                        JsonNode fn = tc.path("function");
+                        String name = fn.path("name").asText("");
+                        String args = fn.path("arguments").asText("");
+                        if (!name.isEmpty()) {
+                            partial.name.append(name);
+                        }
+                        if (!args.isEmpty()) {
+                            partial.arguments.append(args);
+                        }
+                    }
                 }
             }
         } catch (Exception e) {
@@ -245,5 +272,32 @@ public class OpenAiCompatibleProvider implements AiProvider {
 
     private String trimTrailingSlash(String baseUrl) {
         return baseUrl.replaceAll("/+$", "");
+    }
+
+    /** 流式响应中 tool_calls 增量片段累积器 */
+    private static final class StreamToolState {
+        private final Map<Integer, Partial> partials = new LinkedHashMap<>();
+
+        Partial partial(int index) {
+            return partials.computeIfAbsent(index, k -> new Partial());
+        }
+
+        /** 组装完整工具调用，跳过无名称的空片段 */
+        List<AiToolCall> finish() {
+            List<AiToolCall> calls = new ArrayList<>();
+            for (Partial p : partials.values()) {
+                String name = p.name.toString();
+                if (!name.isBlank()) {
+                    calls.add(new AiToolCall(p.id, name, p.arguments.toString()));
+                }
+            }
+            return calls;
+        }
+
+        static final class Partial {
+            String id = "";
+            final StringBuilder name = new StringBuilder();
+            final StringBuilder arguments = new StringBuilder();
+        }
     }
 }

@@ -13,6 +13,7 @@ import com.lzz.lime_server.entity.*;
 import com.lzz.lime_server.mapper.*;
 import com.lzz.lime_server.service.CommentService;
 import com.lzz.lime_server.service.IpLocationService;
+import com.lzz.lime_server.service.NotificationService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
@@ -38,6 +39,7 @@ public class CommentServiceImpl implements CommentService {
     private final IpLocationService      ipLocationService;
     private final StringRedisTemplate    redisTemplate;
     private final ObjectMapper           objectMapper;
+    private final NotificationService    notificationService;
 
     // 热度排序第一页缓存 key 前缀，TTL 3 分钟
     private static final String HOT_FIRST_PAGE_PREFIX = "comment:hot1st:";
@@ -78,6 +80,10 @@ public class CommentServiceImpl implements CommentService {
         CommentResponse resp = toCommentResponse(comment, note.getUserId(), Collections.emptyList(), false);
         fillCommentAuthor(resp, userId);
         resp.setImages(fetchImages(comment.getId()));
+
+        // 评论后通知笔记作者
+        notificationService.notifyUser(userId, note.getUserId(), Notification.TYPE_COMMENT,
+                noteId, comment.getId(), request.getContent());
         return resp;
     }
 
@@ -133,6 +139,18 @@ public class CommentServiceImpl implements CommentService {
         ReplyResponse resp = toReplyResponse(reply, note.getUserId(), false, replyToNickname);
         fillReplyAuthorFromUser(resp, userId);
         resp.setImages(fetchImages(reply.getId()));
+
+        // 回复通知，父评论作者与被回复者都通知，两者相同时只发一次
+        Long replyToUserId = request.getReplyToUserId();
+        Long parentAuthorId = parent.getUserId();
+        if (parentAuthorId != null && !parentAuthorId.equals(replyToUserId)) {
+            notificationService.notifyUser(userId, parentAuthorId, Notification.TYPE_REPLY,
+                    noteId, reply.getId(), request.getContent());
+        }
+        if (replyToUserId != null) {
+            notificationService.notifyUser(userId, replyToUserId, Notification.TYPE_REPLY,
+                    noteId, reply.getId(), request.getContent());
+        }
         return resp;
     }
 
@@ -286,6 +304,10 @@ public class CommentServiceImpl implements CommentService {
                 .setSql("like_count = like_count + 1, hot_score = (like_count + 1) + reply_count * 2"));
 
         evictHotCache(comment.getNoteId());
+
+        // 点赞评论/回复后通知该作者（点赞类通知，正文随通知带回供卡片预览）
+        notificationService.notifyUser(userId, comment.getUserId(), Notification.TYPE_COMMENT_LIKE,
+                comment.getNoteId(), commentId, comment.getContent());
     }
 
     /**

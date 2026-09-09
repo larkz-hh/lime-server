@@ -238,7 +238,10 @@ Access Token 过期后，用 Refresh Token 换取新的双 Token。
     "region": "上海",
     "role": "USER",
     "likePrivate": false,
-    "favPrivate": false
+    "favPrivate": false,
+    "followingCount": 12,
+    "followerCount": 34,
+    "isFollowing": true
   }
 }
 ```
@@ -259,6 +262,13 @@ Access Token 过期后，用 Refresh Token 换取新的双 Token。
 | role            | string  | 角色，当前固定为 `USER`                      |
 | likePrivate     | boolean | 点赞列表是否私密：false=公开，true=私密      |
 | favPrivate      | boolean | 收藏列表是否私密：false=公开，true=私密      |
+| followingCount  | number  | 关注数                                      |
+| followerCount   | number  | 粉丝数                                      |
+| noteCount       | number  | 已发布笔记数                                |
+| totalLikeCount  | number  | 笔记收到的总点赞数（含自己给自己点赞）      |
+| totalFavCount   | number  | 笔记收到的总收藏数（含自己给自己收藏）      |
+| isFollowing     | boolean | 当前登录用户是否已关注该用户（看自己为 null）|
+| isFollowedBack  | boolean | 该用户是否已关注当前登录用户（配合 isFollowing 判断互关，看自己为 null）|
 
 ---
 
@@ -287,7 +297,9 @@ Access Token 过期后，用 Refresh Token 换取新的双 Token。
     "region": "上海",
     "role": "USER",
     "likePrivate": false,
-    "favPrivate": false
+    "favPrivate": false,
+    "followingCount": 12,
+    "followerCount": 34
   }
 }
 ```
@@ -307,6 +319,13 @@ Access Token 过期后，用 Refresh Token 换取新的双 Token。
 | role            | string  | 角色，当前固定为 `USER`                      |
 | likePrivate     | boolean | 点赞列表是否私密：false=公开，true=私密      |
 | favPrivate      | boolean | 收藏列表是否私密：false=公开，true=私密      |
+| followingCount  | number  | 关注数                                      |
+| followerCount   | number  | 粉丝数                                      |
+| noteCount       | number  | 已发布笔记数                                |
+| totalLikeCount  | number  | 笔记收到的总点赞数（含自己给自己点赞）      |
+| totalFavCount   | number  | 笔记收到的总收藏数（含自己给自己收藏）      |
+| isFollowing     | boolean | 当前登录用户是否已关注该用户（看自己为 null）|
+| isFollowedBack  | boolean | 该用户是否已关注当前登录用户（配合 isFollowing 判断互关，看自己为 null）|
 
 ---
 
@@ -314,7 +333,7 @@ Access Token 过期后，用 Refresh Token 换取新的双 Token。
 
 `PUT /api/user/me`
 
-所有字段均为可选，只传需要修改的字段即可。`bio` 和 `region` 传空字符串 `""` 可清空对应字段。
+所有字段均为可选，只传需要修改的字段即可。`bio` 和 `region` 传空字符串 `""` 可清空对应字段；`likePrivate`、`favPrivate` 传 `true`/`false` 可开关列表隐私。
 
 **请求体**
 
@@ -324,19 +343,25 @@ Access Token 过期后，用 Refresh Token 换取新的双 Token。
   "bio": "新的个人简介",
   "gender": 1,
   "birthday": "2000-01-01",
-  "region": "上海"
+  "region": "上海",
+  "likePrivate": true,
+  "favPrivate": false
 }
 ```
 
-| 字段     | 类型   | 必填 | 说明                                  |
-|----------|--------|------|---------------------------------------|
-| nickname | string | 否   | 昵称，1-20 个字符                      |
-| bio      | string | 否   | 简介，最多 200 个字符，传 `""` 可清空  |
-| gender   | number | 否   | 性别：0=未设置，1=男，2=女             |
-| birthday | string | 否   | 生日，格式 `yyyy-MM-dd`               |
-| region   | string | 否   | 地区，最多 50 个字符，传 `""` 可清空   |
+| 字段        | 类型    | 必填 | 说明                                  |
+|-------------|---------|------|---------------------------------------|
+| nickname    | string  | 否   | 昵称，1-20 个字符                      |
+| bio         | string  | 否   | 简介，最多 200 个字符，传 `""` 可清空  |
+| gender      | number  | 否   | 性别：0=未设置，1=男，2=女             |
+| birthday    | string  | 否   | 生日，格式 `yyyy-MM-dd`               |
+| region      | string  | 否   | 地区，最多 50 个字符，传 `""` 可清空   |
+| likePrivate | boolean | 否   | 点赞列表是否私密：false=公开，true=私密 |
+| favPrivate  | boolean | 否   | 收藏列表是否私密：false=公开，true=私密 |
 
 **响应**：返回更新后的用户信息，结构同「获取当前用户信息」。
+
+> 开启隐私后，他人访问 `GET /api/notes/user/{userId}/likes`（或 `/favorites`）时返回业务错误「该用户已开启点赞列表隐私」（「该用户已开启收藏列表隐私」）；本人查看不受影响。
 
 ---
 
@@ -738,10 +763,33 @@ Access Token 过期后，用 Refresh Token 换取新的双 Token。
 | items[].author.id       | number | 作者用户 ID                                  |
 | items[].author.nickname | string | 作者昵称                                     |
 | items[].author.avatar   | string | 作者头像 URL，可为 null                      |
+| items[].author.isFollowing | boolean | 当前用户是否已关注该作者                  |
+| items[].author.isFollowedBack | boolean | 该作者是否已关注当前用户（配合 isFollowing 判断互关） |
 | nextCursor         | number  | 下一页游标（最后一条笔记的 ID），无更多数据时为 null |
 | hasMore            | boolean | 是否还有更多数据                                  |
 
 > 用户列表 / 点赞 / 收藏 / 浏览历史 / 搜索等接口返回的卡片结构与 feed 一致，视频笔记同样携带 `noteType` 与 `video` 字段。
+>
+> 笔记详情（`GET /api/notes/{id}`）返回的 `author` 对象同样包含 `isFollowing` / `isFollowedBack`（看自己的笔记时为 null）。
+
+---
+
+### 获取关注动态
+
+`GET /api/notes/following-feed`
+
+返回**当前登录用户关注的人**发布的笔记，Cursor 分页，按笔记 ID 倒序（最新在前）。卡片结构同「获取信息流」，作者均为已关注的人（`author.isFollowing` 恒为 true，`isFollowedBack` 标记是否互关）。
+
+**需要登录**：是
+
+**Query 参数**
+
+| 参数   | 类型   | 必填 | 说明                                |
+|--------|--------|------|-------------------------------------|
+| cursor | number | 否   | 上一页最后一条笔记 ID，首次传空     |
+| size   | number | 否   | 每页条数，默认 10，最大 50          |
+
+**响应**：结构同「获取信息流」。
 
 ---
 
@@ -926,6 +974,8 @@ Access Token 过期后，用 Refresh Token 换取新的双 Token。
 
 **需要登录**：是
 
+> 已发布笔记人人可看；草稿（status=0）仅作者本人可看，供草稿箱继续编辑。草稿不累计浏览量、不写浏览历史。
+
 **Path 参数**
 
 | 参数 | 类型   | 说明    |
@@ -1042,6 +1092,43 @@ Access Token 过期后，用 Refresh Token 换取新的双 Token。
 ```
 
 ---
+---
+
+### 编辑笔记
+
+`PUT /api/notes/{id}`
+
+仅作者本人，请求体同「发布笔记」。编辑行为按目标笔记状态和 `status` 字段区分：
+
+| 目标笔记 | 请求 status | 行为 |
+|----------|-------------|------|
+| 已发布(1) | 0（存草稿） | **新建草稿副本**（线上版不动），返回草稿 id |
+| 已发布(1) | 1（发布） | 就地覆盖线上版，id/计数/评论不变 |
+| 草稿(0) | 0（存草稿） | 就地更新草稿 |
+| 草稿(0) | 1（发布） | 有来源笔记→覆盖原笔记并删草稿；全新草稿→就地发布 |
+
+编辑后 `updateTime` 更新，点赞/收藏/评论/浏览等计数不变。
+
+**需要登录**：是
+
+**响应**：同「发布笔记」返回最新笔记（存草稿时返回的是草稿 id）。
+
+---
+
+### 删除笔记
+
+`DELETE /api/notes/{id}`
+
+仅作者本人，逻辑删除，草稿和已发布均可删。删除后不再出现在任何列表与详情。
+
+**需要登录**：是
+
+**响应**
+
+```json
+{ "code": 200, "message": "操作成功", "data": null }
+```
+
 ---
 
 ### 发布图文笔记
@@ -1463,7 +1550,10 @@ Access Token 过期后，用 Refresh Token 换取新的双 Token。
         "nickname": "taffy",
         "handle": "user_xxxxxxxx",
         "avatar": "http://minio-host/lime/avatars/uuid.jpg",
-        "isMe": false
+        "isMe": false,
+        "isFollowing": true,
+        "isFollowedBack": true,
+        "followerCount": 34
       }
     ],
     "nextCursor": "3:12:7",
@@ -1479,6 +1569,9 @@ Access Token 过期后，用 Refresh Token 换取新的双 Token。
 | handle | string | 唯一标识符 |
 | avatar | string | 头像 URL，可为 null |
 | isMe | boolean | 是否为当前登录用户本人 |
+| isFollowing | boolean | 当前登录用户是否已关注该用户（本人为 null） |
+| isFollowedBack | boolean | 该用户是否已关注当前登录用户（配合 isFollowing 判断互关，本人为 null） |
+| followerCount | number | 粉丝数（实时统计，本页一次批量查询回填） |
 | nextCursor | string | 下一页游标，无更多数据时为 null |
 | hasMore | boolean | 是否还有下一页 |
 
@@ -1860,5 +1953,376 @@ done 事件字段：
 ```json
 { "code": 200, "message": "操作成功", "data": null }
 ```
+
+---
+
+## 关注接口 `/api/user`
+
+### 关注用户
+
+`POST /api/user/{userId}/follow`
+
+**需要登录**：是
+
+关注成功后：关注者「关注数」+1，被关注者「粉丝数」+1，并向被关注者发一条关注通知。重复关注幂等返回。
+
+**Path 参数**
+
+| 参数   | 类型   | 说明            |
+|--------|--------|-----------------|
+| userId | number | 被关注的用户 ID |
+
+**响应**
+
+```json
+{ "code": 200, "message": "操作成功", "data": null }
+```
+
+---
+
+### 取消关注
+
+`DELETE /api/user/{userId}/follow`
+
+**需要登录**：是
+
+取消后关注数/粉丝数相应 -1，幂等返回。
+
+**Path 参数**
+
+| 参数   | 类型   | 说明                |
+|--------|--------|---------------------|
+| userId | number | 被取消关注的用户 ID |
+
+**响应**
+
+```json
+{ "code": 200, "message": "操作成功", "data": null }
+```
+
+---
+
+### 关注列表
+
+`GET /api/user/{userId}/following`
+
+**需要登录**：是
+
+游标分页，按关注时间倒序，返回用户简要信息。每条带当前登录用户与该用户的关注状态（`isFollowing` / `isFollowedBack`），App 据此渲染关注/回关/互关。
+
+**Path 参数**
+
+| 参数   | 类型   | 说明    |
+|--------|--------|---------|
+| userId | number | 用户 ID |
+
+**Query 参数**
+
+| 参数   | 类型   | 必填 | 说明                                |
+|--------|--------|------|-------------------------------------|
+| cursor | number | 否   | 游标，上一页最后一条的 id，首次传空 |
+| size   | number | 否   | 每页条数，默认 10，最大 50          |
+
+**响应**
+
+```json
+{
+  "code": 200,
+  "message": "操作成功",
+  "data": {
+    "items": [
+      {
+        "id": 8,
+        "nickname": "taffy",
+        "handle": "user_xxx",
+        "avatar": "http://localhost:9000/lime-bucket/avatars/uuid.jpg",
+        "bio": "简介",
+        "isFollowing": true,
+        "isFollowedBack": true
+      }
+    ],
+    "nextCursor": "5",
+    "hasMore": true
+  }
+}
+```
+
+> `isFollowing`：当前登录用户是否已关注该用户；`isFollowedBack`：该用户是否已关注当前登录用户；两者都为 true 即互相关注。
+
+---
+
+### 粉丝列表
+
+`GET /api/user/{userId}/followers`
+
+**需要登录**：是
+
+参数与响应结构同「关注列表」。
+
+---
+
+## 站内通知接口 `/api/notifications`
+
+> 点赞笔记、点赞评论/回复、收藏笔记、评论、回复、关注都会产生站内通知；事件经 RocketMQ 异步解耦生成通知，信箱红点取未读数接口，实时变化由 SSE 推送。
+
+### 通知列表
+
+`GET /api/notifications`
+
+**需要登录**：是
+
+游标分页，按时间倒序，返回当前登录用户的通知。可按 `type` 过滤（分三个信箱）。
+
+**Query 参数**
+
+| 参数   | 类型   | 必填 | 说明                                   |
+|--------|--------|------|----------------------------------------|
+| cursor | number | 否   | 游标，上一页最后一条通知 id，首次传空 |
+| size   | number | 否   | 每页条数，默认 10，最大 50             |
+| type   | string | 否   | 按通知类型过滤，多个用逗号分隔；不传返回全部 |
+
+`type` 与三个信箱的对应关系：
+
+| 信箱 | type 值 | 含义 |
+|------|---------|------|
+| 赞和收藏 | `1,2,6` | 点赞笔记 + 收藏 + 点赞评论/回复 |
+| 关注 | `5` | 新增关注 |
+| 评论与回复 | `3,4` | 评论 + 回复 |
+
+**响应**
+
+```json
+{
+  "code": 200,
+  "message": "操作成功",
+  "data": {
+    "items": [
+      {
+        "id": 100,
+        "type": 1,
+        "noteId": 20,
+        "commentId": null,
+        "content": null,
+        "isRead": false,
+        "createTime": "2026-08-25T10:00:00",
+        "senderId": 7,
+        "senderNickname": "taffy",
+        "senderAvatar": "http://localhost:9000/lime-bucket/avatars/uuid.jpg",
+        "isFollowing": null,
+        "isFollowedBack": null
+      }
+    ],
+    "nextCursor": "99",
+    "hasMore": true
+  }
+}
+```
+
+| 字段           | 类型    | 说明                              |
+|----------------|---------|-----------------------------------|
+| type           | number  | 1=点赞笔记 2=收藏 3=评论 4=回复 5=关注 6=点赞评论/回复 |
+| noteId         | number  | 关联笔记 id，可为 null             |
+| commentId      | number  | 关联评论/回复 id：type=3（评论）、type=6（点赞评论）为评论 id；type=4（回复）为**回复本身**的 id；可为 null |
+| content        | string  | 通知正文：评论(type=3)/回复(type=4)/点赞评论(type=6)为对应评论（回复）正文；点赞笔记、收藏、关注为 null |
+| parentCommentId| number  | 回复通知（type=4）被回复的父评论 id，其他类型为 null |
+| replyToContent | string  | 回复通知（type=4）被回复的**原评论正文**（"回复了你的评论：xxx" 展示用），可为 null |
+| noteCover      | string  | 关联笔记封面图 URL（用于通知卡片），可为 null |
+| isRead         | boolean | 是否已读                          |
+| senderNickname | string  | 触发者昵称                        |
+| senderAvatar   | string  | 触发者头像 URL                     |
+| isFollowing    | boolean | 仅 type=5（关注）通知填充：当前用户是否已关注触发者；其他类型为 null |
+| isFollowedBack | boolean | 仅 type=5（关注）通知填充：触发者是否已关注当前用户（互关判断用）；其他类型为 null |
+
+---
+
+### 未读通知数（分组）
+
+`GET /api/notifications/unread-count`
+
+**需要登录**：是
+
+返回按信箱分组的未读数，对应三个信箱 Tab 的角标。
+
+| 字段 | 说明 |
+|------|------|
+| total | 总未读数（主红点） |
+| likeFav | 赞和收藏（type=1,2,6） |
+| follow | 关注（type=5） |
+| comment | 评论与回复（type=3,4） |
+
+**响应**
+
+```json
+{
+  "code": 200,
+  "message": "操作成功",
+  "data": {
+    "total": 12,
+    "likeFav": 7,
+    "follow": 2,
+    "comment": 3
+  }
+}
+```
+
+---
+
+### 标记单条已读
+
+`PUT /api/notifications/{id}/read`
+
+**需要登录**：是
+
+**Path 参数**
+
+| 参数 | 类型   | 说明     |
+|------|--------|----------|
+| id   | number | 通知 ID |
+
+**响应**
+
+```json
+{ "code": 200, "message": "操作成功", "data": null }
+```
+
+---
+
+### 全部标记已读
+
+`PUT /api/notifications/read-all`
+
+**需要登录**：是
+
+支持按信箱（类型）批量已读：**不带 `type` = 全部信箱已读；带 `type` = 只清对应类型**，打开哪个信箱调哪个即可清零（不用逐条已读）。
+
+**Query 参数**
+
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| type | string | 否 | 只标记这些类型的通知为已读，多个用逗号分隔；不传则全部 |
+
+对应关系：赞和收藏 `type=1,2,6` / 关注 `type=5` / 评论与回复 `type=3,4`。
+
+**响应**
+
+```json
+{ "code": 200, "message": "操作成功", "data": null }
+```
+
+---
+
+### 删除单条通知
+
+`DELETE /api/notifications/{id}`
+
+**需要登录**：是
+
+物理删除，仅能删除当前登录用户自己的通知；删除后未读数同步变化。
+
+**Path 参数**
+
+| 参数 | 类型   | 说明     |
+|------|--------|----------|
+| id   | number | 通知 ID |
+
+**响应**
+
+```json
+{ "code": 200, "message": "操作成功", "data": null }
+```
+
+---
+
+### 清空全部通知
+
+`DELETE /api/notifications/all`
+
+**需要登录**：是
+
+物理删除当前登录用户的全部通知，未读数归零。
+
+**响应**
+
+```json
+{ "code": 200, "message": "操作成功", "data": null }
+```
+
+---
+
+### SSE 实时推送未读数
+
+`GET /api/notifications/subscribe?access_token=<accessToken>`
+
+**需要登录**：是（token 通过 `access_token` 查询参数传入，浏览器 EventSource 无法自定义请求头）
+
+建立 SSE 长连接后，每当产生新通知（点赞/收藏/评论/回复/关注）或未读数变化，服务端推送 `unread` 事件，`data` 为分组未读数 JSON（结构与 `unread-count` 接口一致），客户端据此点亮各信箱红点。
+
+**事件示例**
+
+```
+event: unread
+data: {"total":12,"likeFav":7,"follow":2,"comment":3}
+```
+
+---
+
+## 即时通信 IM 接口 `/api/im`
+
+> IM（私信）的消息收发走腾讯云 IM SDK 长连接，本组接口只负责「鉴权凭据下发」与「会话授权」。IM 用户 ID = 业务前缀 `lime_` + 业务用户 id，例如业务 id 7 → IM 用户 `lime_7`。
+> 相关 App 集成代码与撤回/删除说明见 Android 工程 `xyz.larkzhh.lime.data.im` 包。
+
+### 获取 UserSig
+
+`GET /api/im/userSig`
+
+**需要登录**：是
+
+返回当前登录用户登录腾讯云 IM 所需的凭据，App 拿到后用 IM SDK `login(userId, userSig)` 登录。
+
+**响应**
+
+```json
+{
+  "code": 200,
+  "message": "操作成功",
+  "data": {
+    "sdkAppId": 1400000000,
+    "userId": "lime_7",
+    "userSig": "eJxNkE9...",
+    "expire": 1788984
+  }
+}
+```
+
+| 字段     | 类型   | 说明 |
+|----------|--------|------|
+| sdkAppId | number | IM 应用 SDKAppID |
+| userId   | string | IM 用户 ID（`lime_` + 业务 id） |
+| userSig  | string | 用户签名（服务端用 SecretKey 生成，有效期可配置，默认 7 天） |
+| expire   | number | userSig 过期时间戳（秒） |
+
+### 打开私信会话
+
+`POST /api/im/conversation/open`
+
+**需要登录**：是
+
+**请求**
+
+```json
+{ "targetUserId": 7 }
+```
+
+**逻辑**：仅当双方**互相关注**（互关）才放行，返回单聊会话 ID；未互关返回业务码 403，App 据此提示「需互相关注后才能私信」。
+
+**响应**
+
+```json
+{ "code": 200, "message": "操作成功", "data": { "conversationId": "c2c_lime_7" } }
+```
+
+| 字段           | 类型   | 说明 |
+|----------------|--------|------|
+| conversationId | string | IM 单聊会话 ID（格式 `c2c_<IM userID>`），App 用它进入聊天页 |
 
 ```

@@ -5,6 +5,7 @@ CREATE TABLE IF NOT EXISTS `note` (
     `content`     TEXT,
     `note_type`   TINYINT      NOT NULL DEFAULT 1 COMMENT '1=图文, 2=视频',
     `status`      TINYINT      NOT NULL DEFAULT 1 COMMENT '0=草稿, 1=已发布',
+    `source_note_id` BIGINT    NULL COMMENT '草稿来源笔记 id，编辑已发布笔记产生的草稿指向原笔记',
     `like_count`    INT          NOT NULL DEFAULT 0,
     `fav_count`     INT          NOT NULL DEFAULT 0,
     `view_count`    INT          NOT NULL DEFAULT 0,
@@ -55,6 +56,7 @@ CREATE TABLE IF NOT EXISTS `user` (
     `password`    VARCHAR(255) NOT NULL,
     `nickname`    VARCHAR(50)  NOT NULL,
     `handle`      VARCHAR(30)  NOT NULL UNIQUE,
+    `uid`         VARCHAR(40)  NOT NULL UNIQUE COMMENT '对外公开唯一标识，注册时生成、永不修改',
     `bio`         VARCHAR(200),
     `phone`       VARCHAR(20),
     `avatar`      VARCHAR(255),
@@ -162,4 +164,27 @@ CREATE TABLE IF NOT EXISTS `ai_message` (
     `note_snapshot`   TEXT         NULL COMMENT '笔记上下文快照 JSON(发送时检索存入,后续轮次复用)',
     `create_time`     DATETIME     DEFAULT CURRENT_TIMESTAMP,
     INDEX `idx_ai_msg_conv` (`conversation_id`, `id`)
+);
+
+CREATE TABLE IF NOT EXISTS `user_follow` (
+    `id`          BIGINT       AUTO_INCREMENT PRIMARY KEY,
+    `follower_id` BIGINT       NOT NULL COMMENT '关注者用户 id',
+    `followee_id` BIGINT       NOT NULL COMMENT '被关注者用户 id',
+    `create_time` DATETIME     DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE KEY `uk_follow_pair` (`follower_id`, `followee_id`),
+    INDEX `idx_follow_follower` (`follower_id`),
+    INDEX `idx_follow_followee` (`followee_id`)
+);
+
+CREATE TABLE IF NOT EXISTS `notification` (
+    `id`          BIGINT       AUTO_INCREMENT PRIMARY KEY,
+    `receiver_id` BIGINT       NOT NULL COMMENT '接收通知的用户 id',
+    `sender_id`   BIGINT       NOT NULL COMMENT '触发通知的用户 id',
+    `type`        TINYINT      NOT NULL COMMENT '1=点赞笔记 2=收藏 3=评论 4=回复 5=关注 6=点赞评论/回复',
+    `note_id`     BIGINT       NULL COMMENT '关联笔记 id',
+    `comment_id`  BIGINT       NULL COMMENT '关联评论 id',
+    `content`     VARCHAR(200) NULL COMMENT '通知摘要文本',
+    `is_read`     TINYINT      NOT NULL DEFAULT 0,
+    `create_time` DATETIME     DEFAULT CURRENT_TIMESTAMP,
+    INDEX `idx_notif_receiver` (`receiver_id`, `id`)
 );

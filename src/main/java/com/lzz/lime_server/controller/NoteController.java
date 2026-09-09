@@ -64,6 +64,15 @@ public class NoteController {
         return Result.success(noteService.getFeed(cursor, size, currentUserId()));
     }
 
+    // 关注动态,Cursor 分页
+    @GetMapping("/following-feed")
+    public Result<CursorPage<NoteFeedResponse>> getFollowingFeed(
+            @RequestParam(required = false) Long cursor,
+            @RequestParam(defaultValue = "10") int size) {
+        size = Math.min(size, 50);
+        return Result.success(noteService.getFollowingFeed(currentUserId(), cursor, size));
+    }
+
     /// 视频流，Cursor 分页，按 id 倒序（最新在前）
     /// orientation 可选：landscape=仅横屏（全屏横屏会话）/ portrait=仅竖屏，不传则不限
     @GetMapping("/video-feed")
@@ -88,6 +97,20 @@ public class NoteController {
     public Result<NoteResponse> publishNote(@Valid @RequestBody PublishNoteRequest request) {
         NoteResponse resp = noteService.publishNote(currentUserId(), request);
         return Result.success(resp);
+    }
+
+    // 编辑笔记
+    @PutMapping("/{id}")
+    public Result<NoteResponse> updateNote(@PathVariable Long id,
+                                           @Valid @RequestBody PublishNoteRequest request) {
+        return Result.success(noteService.updateNote(id, currentUserId(), request));
+    }
+
+    // 删除笔记
+    @DeleteMapping("/{id}")
+    public Result<Void> deleteNote(@PathVariable Long id) {
+        noteService.deleteNote(id, currentUserId());
+        return Result.success();
     }
 
     /// 获取笔记详情；noView=true 时不累计浏览量、不写浏览历史（视频流补水场景用）
@@ -171,6 +194,8 @@ public class NoteController {
     }
 
     private Long currentUserId() {
-        return (Long) SecurityContextHolder.getContext().getAuthentication().getPrincipal();
+        var authentication = SecurityContextHolder.getContext().getAuthentication();
+        Object principal = authentication == null ? null : authentication.getPrincipal();
+        return principal instanceof Long ? (Long) principal : null;
     }
 }
