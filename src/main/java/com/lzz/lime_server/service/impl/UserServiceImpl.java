@@ -1,5 +1,6 @@
 package com.lzz.lime_server.service.impl;
 
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.lzz.lime_server.common.ResultCode;
 import com.lzz.lime_server.common.exception.BusinessException;
 import com.lzz.lime_server.dto.request.ChangePasswordRequest;
@@ -79,6 +80,42 @@ public class UserServiceImpl implements UserService {
     }
 
     /**
+     * 供二维码/分享场景跳转用户主页。
+     */
+    @Override
+    public UserInfoResponse getUserByHandle(String handle, Long currentUserId) {
+        if (!StringUtils.hasText(handle)) {
+            throw new BusinessException("无效的 Lime ID");
+        }
+        User user = userMapper.selectOne(
+            new LambdaQueryWrapper<User>().eq(User::getHandle, handle), false);
+        if (user == null) {
+            throw new BusinessException(ResultCode.NOT_FOUND);
+        }
+        UserInfoResponse resp = toResponse(user, currentUserId);
+        resp.setEmail(null);
+        return resp;
+    }
+
+    /**
+     * 二维码/外链统一入口：uid 不受 handle 改名影响，也不暴露自增 id。
+     */
+    @Override
+    public UserInfoResponse getUserByUid(String uid, Long currentUserId) {
+        if (!StringUtils.hasText(uid)) {
+            throw new BusinessException("无效的用户标识");
+        }
+        User user = userMapper.selectOne(
+            new LambdaQueryWrapper<User>().eq(User::getUid, uid), false);
+        if (user == null) {
+            throw new BusinessException(ResultCode.NOT_FOUND);
+        }
+        UserInfoResponse resp = toResponse(user, currentUserId);
+        resp.setEmail(null);
+        return resp;
+    }
+
+    /**
      * 更新用户基础资料（支持部分更新）
      * <p>
      * 仅更新请求中非空且有效的字段：
@@ -122,6 +159,16 @@ public class UserServiceImpl implements UserService {
         // region 允许传空字符串来清空
         if (request.getRegion() != null) {
             user.setRegion(request.getRegion());
+            changed = true;
+        }
+        // 点赞列表私密开关：true 为私密
+        if (request.getLikePrivate() != null) {
+            user.setLikePrivate(request.getLikePrivate());
+            changed = true;
+        }
+        // 收藏列表私密开关：true 为私密
+        if (request.getFavPrivate() != null) {
+            user.setFavPrivate(request.getFavPrivate());
             changed = true;
         }
         // 更新用户信息
@@ -220,6 +267,11 @@ public class UserServiceImpl implements UserService {
             }
         }
 
+        // 无论密码还是验证码改密，新密码都不能与原密码相同
+        if (passwordEncoder.matches(request.getNewPassword(), user.getPassword())) {
+            throw new BusinessException("新密码不能与原密码相同");
+        }
+
         user.setPassword(passwordEncoder.encode(request.getNewPassword()));
         userMapper.updateById(user);
         // 修改密码后使当前 Token 失效，强制重新登录
@@ -266,6 +318,7 @@ public class UserServiceImpl implements UserService {
         resp.setEmail(user.getEmail());
         resp.setNickname(user.getNickname());
         resp.setHandle(user.getHandle());
+        resp.setUid(user.getUid());
         resp.setBio(user.getBio());
         resp.setAvatar(user.getAvatar());
         resp.setBackgroundImage(user.getBackgroundImage());

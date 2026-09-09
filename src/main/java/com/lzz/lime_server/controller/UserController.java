@@ -38,6 +38,18 @@ public class UserController {
         return Result.success(userService.getUserProfile(userId, currentUserId()));
     }
 
+    /// 历史兼容：扫码按 handle 跳转用户主页
+    @GetMapping("/byHandle/{handle}")
+    public Result<UserInfoResponse> getUserByHandle(@PathVariable String handle) {
+        return Result.success(userService.getUserByHandle(handle, currentUserId()));
+    }
+
+    /// 二维码/外链统一按 uid 跳转用户主页
+    @GetMapping("/byUid/{uid}")
+    public Result<UserInfoResponse> getUserByUid(@PathVariable String uid) {
+        return Result.success(userService.getUserByUid(uid, currentUserId()));
+    }
+
     /// 更新当前登录用户的资料
     @PutMapping("/me")
     public Result<UserInfoResponse> updateProfile(@Valid @RequestBody UpdateProfileRequest request) {
@@ -76,6 +88,8 @@ public class UserController {
 
     /// 从 Spring Security 上下文中获取当前已认证用户的 ID
     private Long currentUserId() {
-        return (Long) SecurityContextHolder.getContext().getAuthentication().getPrincipal();
+        var authentication = SecurityContextHolder.getContext().getAuthentication();
+        Object principal = authentication == null ? null : authentication.getPrincipal();
+        return principal instanceof Long ? (Long) principal : null;
     }
 }

@@ -21,6 +21,9 @@ public class User {
 
     private String handle;
 
+    /** 对外公开标识：二维码/外链使用，避免暴露自增 id */
+    private String uid;
+
     private String bio;
 
     private String phone;

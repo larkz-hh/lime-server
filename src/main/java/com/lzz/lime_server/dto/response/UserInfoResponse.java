@@ -11,6 +11,8 @@ public class UserInfoResponse {
     private String email;
     private String nickname;
     private String handle;
+    /** 对外公开标识：二维码/外链使用 */
+    private String uid;
     private String bio;
     private String avatar;
     private String backgroundImage;

@@ -27,4 +27,10 @@ public class UpdateProfileRequest {
     /** 地区，最多 50 个字符 */
     @Size(max = 50, message = "地区不超过 50 个字符")
     private String region;
+
+    /** 点赞列表私密开关：true 为私密 */
+    private Boolean likePrivate;
+
+    /** 收藏列表私密开关：true 为私密 */
+    private Boolean favPrivate;
 }

@@ -56,6 +56,7 @@ CREATE TABLE IF NOT EXISTS `user` (
     `password`    VARCHAR(255) NOT NULL,
     `nickname`    VARCHAR(50)  NOT NULL,
     `handle`      VARCHAR(30)  NOT NULL UNIQUE,
+    `uid`         VARCHAR(40)  NOT NULL UNIQUE COMMENT '对外公开唯一标识，注册时生成、永不修改',
     `bio`         VARCHAR(200),
     `phone`       VARCHAR(20),
     `avatar`      VARCHAR(255),

@@ -102,6 +102,8 @@ public class AuthServiceImpl implements AuthService {
         user.setNickname("用户" + UUID.randomUUID().toString().replace("-", "").substring(0, 6));
         // 自动生成唯一 handle，用户可在个人设置中修改
         user.setHandle("user_" + UUID.randomUUID().toString().replace("-", "").substring(0, 8));
+        // uid：注册时生成且永不修改，作对外公开标识
+        user.setUid("u_" + UUID.randomUUID().toString().replace("-", ""));
         user.setPhone(request.getPhone());
         user.setRole("USER");
         user.setStatus(0);
